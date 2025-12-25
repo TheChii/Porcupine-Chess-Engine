@@ -3,7 +3,7 @@
 //! Determines if a capture sequence is winning, losing, or neutral.
 //! Uses fixed-size arrays to avoid allocations.
 
-use crate::types::{Board, Move, piece_value};
+use crate::types::{Board, Move};
 use chess::{BitBoard, Piece, Color, Square, EMPTY};
 
 /// Piece values for SEE (using lower values for faster cutoffs)

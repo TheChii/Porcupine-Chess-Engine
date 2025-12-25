@@ -18,6 +18,7 @@
 //! - Multi-threaded search (Lazy SMP)
 
 mod negamax;
+mod qsearch;
 mod ordering;
 mod limits;
 pub mod tt;
