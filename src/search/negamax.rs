@@ -139,6 +139,34 @@ pub fn search(
 
     let in_check = *board.checkers() != chess::EMPTY;
 
+    // === ProbCut ===
+    const PROBCUT_MARGIN: i32 = 200;
+    if depth.raw() >= 5 && (beta.raw() - alpha.raw() == 1) && !in_check && beta.raw().abs() < (SCORE_MATE - 1000) {
+        let mut probe_beta = beta + Score::cp(PROBCUT_MARGIN);
+        let probe_depth = Depth::new(depth.raw() - 4);
+
+        let result = search(
+            searcher,
+            evaluator,
+            board,
+            probe_depth,
+            ply,
+            probe_beta - Score::cp(1),
+            probe_beta,
+            false,
+            None
+        );
+
+        if result.score >= probe_beta {
+            return SearchResult {
+                 best_move: result.best_move,
+                 score: beta,
+                 pv: Vec::new(),
+                 stats: searcher.stats().clone()
+            };
+        }
+    }
+
     // === Null Move Pruning ===
     // Skip if: in check, depth too low, null move disabled, or only king+pawns
     if allow_null && !in_check && depth.raw() >= 3 {
