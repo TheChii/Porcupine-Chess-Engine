@@ -264,6 +264,12 @@ impl Searcher {
             if !self.can_start_new_iteration() {
                 break;
             }
+            
+            // Early termination: stop when forced mate is found
+            // No point searching deeper - mate can only be shortened, not improved
+            if best_score.is_mate() && self.best_move.is_some() {
+                break;
+            }
 
             // Aspiration window: use previous score +/- delta after depth 1
             let mut delta = INITIAL_WINDOW;
