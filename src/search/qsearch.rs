@@ -2,13 +2,40 @@
 //!
 //! When the main search reaches depth 0, we continue searching captures
 //! to ensure we don't stop in the middle of a tactical sequence.
+//!
+//! Implements delta pruning to skip hopeless captures.
 
 use super::{Searcher, ordering};
 use super::negamax::SearchResult;
+use super::see::is_good_capture;
 use crate::types::{Board, Move, Score, Ply, MoveGen};
 use crate::eval::SearchEvaluator;
 use arrayvec::ArrayVec;
 use std::time::Instant;
+
+/// Piece values for delta pruning (centipawns)
+const PIECE_VALUE: [i32; 7] = [
+    0,    // None
+    100,  // Pawn
+    320,  // Knight
+    330,  // Bishop
+    500,  // Rook
+    900,  // Queen
+    0,    // King (never captured)
+];
+
+/// Delta margin: if stand_pat + best possible gain < alpha, prune
+/// Using Queen value as the maximum possible gain from a single capture
+const DELTA_MARGIN: i32 = 900;
+
+/// Safety margin for individual move delta pruning
+const DELTA_SAFETY: i32 = 200;
+
+/// Get the value of a piece for delta pruning
+#[inline]
+fn piece_value(piece: chess::Piece) -> i32 {
+    PIECE_VALUE[piece as usize + 1]
+}
 
 /// Quiescence search - search captures only to avoid horizon effect
 pub fn quiescence(
@@ -29,10 +56,23 @@ pub fn quiescence(
     let stand_pat = evaluator.evaluate(board);
     searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
 
+    // Beta cutoff: position is already too good
     if stand_pat >= beta {
         return SearchResult {
             best_move: None,
             score: beta,
+            pv: Vec::new(),
+            stats: searcher.stats().clone(),
+        };
+    }
+
+    // === Delta Pruning (Big Delta) ===
+    // If even capturing a queen wouldn't bring us close to alpha, give up
+    let in_check = *board.checkers() != chess::EMPTY;
+    if !in_check && stand_pat.raw() + DELTA_MARGIN < alpha.raw() {
+        return SearchResult {
+            best_move: None,
+            score: alpha,
             pv: Vec::new(),
             stats: searcher.stats().clone(),
         };
@@ -70,6 +110,25 @@ pub fn quiescence(
         let m = moves[i];
         if searcher.should_stop() {
             break;
+        }
+
+        // Get captured piece value for delta pruning
+        let captured = board.piece_on(m.get_dest());
+        let captured_value = captured.map(piece_value).unwrap_or(0);
+
+        // === Delta Pruning (Per-Move) ===
+        // If this capture + safety margin can't raise alpha, skip it
+        // Skip this check for promotions (they gain material)
+        if !in_check && m.get_promotion().is_none() {
+            if stand_pat.raw() + captured_value + DELTA_SAFETY < alpha.raw() {
+                continue;
+            }
+        }
+
+        // === SEE Pruning ===
+        // Skip captures that lose material according to SEE
+        if !in_check && !is_good_capture(board, m) {
+            continue;
         }
 
         let new_board = board.make_move_new(m);
