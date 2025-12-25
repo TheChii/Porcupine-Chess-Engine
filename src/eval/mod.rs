@@ -9,6 +9,46 @@ pub mod nnue;
 
 // Re-export the evaluator for use in search
 pub use nnue::NnueEvaluator;
+use crate::types::Move;
+
+/// Evaluator wrapper that handles either NNUE (incremental) or Material (stateless)
+#[derive(Clone)]
+pub enum SearchEvaluator<'a> {
+    Nnue(NnueEvaluator<'a>),
+    Material,
+}
+
+impl<'a> SearchEvaluator<'a> {
+    pub fn new(model: Option<&'a nnue::Model>, board: &Board) -> Self {
+        match model {
+            Some(m) => Self::Nnue(NnueEvaluator::new(&m.model, board)),
+            None => Self::Material,
+        }
+    }
+
+    #[inline]
+    pub fn evaluate(&mut self, board: &Board) -> Score {
+        match self {
+            Self::Nnue(e) => e.evaluate(board.side_to_move()),
+            Self::Material => material_eval_wrapper(board),
+        }
+    }
+
+    #[inline]
+    pub fn update_move(&mut self, board: &Board, m: Move) -> bool {
+        match self {
+            Self::Nnue(e) => e.update_move(board, m),
+            Self::Material => true, // Material eval is stateless, update always "succeeds"
+        }
+    }
+
+    #[inline]
+    pub fn refresh(&mut self, board: &Board) {
+        if let Self::Nnue(e) = self {
+            e.refresh(board);
+        }
+    }
+}
 
 /// Evaluate the position.
 ///
@@ -23,14 +63,8 @@ pub fn evaluate(board: &Board, model: Option<&nnue::Model>) -> Score {
     }
 }
 
-/// Evaluate using an existing NNUE evaluator (incremental - fast!)
-#[inline]
-pub fn evaluate_incremental(evaluator: &mut NnueEvaluator<'_>, side_to_move: Color) -> Score {
-    evaluator.evaluate(side_to_move)
-}
-
 /// Wrapper for material eval that returns Score
-fn material_eval_wrapper(board: &Board) -> Score {
+pub fn material_eval_wrapper(board: &Board) -> Score {
     let eval = material_eval(board);
     if board.side_to_move() == Color::White {
         Score::cp(eval)

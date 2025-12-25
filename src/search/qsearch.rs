@@ -6,10 +6,12 @@
 use super::{Searcher, ordering};
 use super::negamax::SearchResult;
 use crate::types::{Board, Move, Score, Ply, MoveGen};
+use crate::eval::SearchEvaluator;
 
 /// Quiescence search - search captures only to avoid horizon effect
 pub fn quiescence(
     searcher: &mut Searcher,
+    evaluator: &mut SearchEvaluator,
     board: &Board,
     ply: Ply,
     mut alpha: Score,
@@ -18,8 +20,8 @@ pub fn quiescence(
     searcher.inc_nodes();
     searcher.update_seldepth(ply);
 
-    // Stand-pat evaluation
-    let stand_pat = crate::eval::evaluate(board, searcher.nnue.as_ref());
+    // Stand-pat evaluation using incremental evaluator
+    let stand_pat = evaluator.evaluate(board);
 
     if stand_pat >= beta {
         return SearchResult {
@@ -66,8 +68,12 @@ pub fn quiescence(
         }
 
         let new_board = board.make_move_new(m);
+        
+        // Clone evaluator for next depth and update incrementally
+        let mut child_evaluator = evaluator.clone();
+        child_evaluator.update_move(board, m); // board is position BEFORE move
 
-        let result = quiescence(searcher, &new_board, ply.next(), -beta, -alpha);
+        let result = quiescence(searcher, &mut child_evaluator, &new_board, ply.next(), -beta, -alpha);
         let score = -result.score;
 
         if score > best_score {

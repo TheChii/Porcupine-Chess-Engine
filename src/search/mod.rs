@@ -36,7 +36,7 @@ pub use countermove::CounterMoveTable;
 pub use see::{see, see_ge, is_good_capture};
 
 use crate::types::{Board, Move, Score, Depth, Ply, NodeCount};
-use crate::eval::nnue;
+use crate::eval::{nnue, SearchEvaluator};
 use std::time::Instant;
 
 /// Search statistics collected during search
@@ -205,6 +205,11 @@ impl Searcher {
         let mut best_score = Score::neg_infinity();
         const INITIAL_WINDOW: i32 = 25;
         
+        // Initialize evaluator at root
+        // Clone the Arc to decouple lifetime from &self, avoiding borrow checker conflict
+        let local_nnue = self.nnue.clone();
+        let mut root_evaluator = SearchEvaluator::new(local_nnue.as_ref(), &self.board);
+        
         for depth in 1..=max_depth.raw() {
             if self.should_stop() {
                 break;
@@ -227,6 +232,7 @@ impl Searcher {
             loop {
                 let result = negamax::search(
                     self,
+                    &mut root_evaluator,
                     &self.board.clone(),
                     Depth::new(depth),
                     Ply::ZERO,

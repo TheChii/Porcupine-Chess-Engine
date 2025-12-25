@@ -10,7 +10,7 @@
 use super::{Searcher, SearchStats, ordering, qsearch};
 use super::tt::BoundType;
 use crate::types::{Board, Move, Score, Depth, Ply, MoveGen};
-use crate::eval;
+use crate::eval::SearchEvaluator;
 
 /// Result from a search
 #[derive(Debug, Clone)]
@@ -24,6 +24,7 @@ pub struct SearchResult {
 /// Main negamax search function with TT integration and null move pruning
 pub fn search(
     searcher: &mut Searcher,
+    evaluator: &mut SearchEvaluator,
     board: &Board,
     depth: Depth,
     ply: Ply,
@@ -122,8 +123,12 @@ pub fn search(
             let r = if depth.raw() > 6 { 3 } else { 2 };
             
             if let Some(null_board) = board.null_move() {
+                // Clone evaluator for null move (no piece updates needed)
+                let mut null_evaluator = evaluator.clone();
+                
                 let null_result = search(
                     searcher,
+                    &mut null_evaluator,
                     &null_board,
                     Depth::new((depth.raw() - 1 - r).max(0)),
                     ply.next(),
@@ -168,7 +173,7 @@ pub fn search(
 
     // Quiescence search at depth 0
     if depth.is_qs() {
-        return qsearch::quiescence(searcher, board, ply, alpha, beta);
+        return qsearch::quiescence(searcher, evaluator, board, ply, alpha, beta);
     }
 
     // Get killers for this ply
@@ -183,7 +188,7 @@ pub fn search(
 
     // Cache static eval for futility pruning (only compute once per node)
     let static_eval = if depth.raw() <= 3 && !in_check {
-        Some(eval::evaluate(board, searcher.nnue.as_ref()))
+        Some(evaluator.evaluate(board))
     } else {
         None
     };
@@ -254,9 +259,16 @@ pub fn search(
         let mut score;
         
         if move_idx == 0 {
+            // Incremental update for next depth
+            let mut child_eval = evaluator.clone();
+            if !child_eval.update_move(board, m) {
+                child_eval.refresh(&new_board);
+            }
+
             // First move: search with full window
             result = search(
                 searcher,
+                &mut child_eval,
                 &new_board,
                 search_depth,
                 ply.next(),
@@ -267,9 +279,16 @@ pub fn search(
             );
             score = -result.score;
         } else {
+            // Incremental update
+            let mut child_eval = evaluator.clone();
+            if !child_eval.update_move(board, m) {
+                child_eval.refresh(&new_board);
+            }
+
             // Later moves: null window search first
             result = search(
                 searcher,
+                &mut child_eval,
                 &new_board,
                 search_depth,
                 ply.next(),
@@ -282,8 +301,10 @@ pub fn search(
             
             // Re-search with full window if fails high
             if score > alpha && score < beta && !searcher.should_stop() {
+                // Re-use same child_eval since board/move didn't change
                 result = search(
                     searcher,
+                    &mut child_eval,
                     &new_board,
                     search_depth,
                     ply.next(),
@@ -298,8 +319,23 @@ pub fn search(
 
         // Re-search at full depth if LMR reduced search beats alpha
         if reduced && score > alpha && !searcher.should_stop() {
+            // Need fresh evaluator if we didn't keep the previous one derived from 'm'?
+            // Actually 'm' is consistent for this iteration. 
+            // We can reconstruct child_eval or just do it again.
+            // But wait, the previous block ending at 297 might have been executing "else" branch
+            // where 'child_eval' is defined in scope.
+            // Oh, 'child_eval' scope is inside if/else blocks.
+            // I should define child_eval before if/else for the 'else' case?
+            // Or just recreate it here. Recreating is safer for scope.
+            
+            let mut child_eval = evaluator.clone();
+            if !child_eval.update_move(board, m) {
+                child_eval.refresh(&new_board);
+            }
+
             result = search(
                 searcher,
+                &mut child_eval,
                 &new_board,
                 Depth::new((depth.raw() - 1 + extension).max(0)),
                 ply.next(),
