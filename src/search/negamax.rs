@@ -1,14 +1,14 @@
 //! Negamax alpha-beta search implementation.
 //!
-//! This is the core search algorithm. Currently implements basic alpha-beta
-//! with negamax framework. Designed for easy extension with:
-//! - Transposition table lookups/stores
-//! - Null move pruning
-//! - Late move reductions
-//! - Futility pruning
-//! - etc.
+//! This is the core search algorithm with:
+//! - Transposition table probing and storing
+//! - Alpha-beta pruning
+//! - Quiescence search for captures
+//!
+//! Future extensions: null move pruning, LMR, futility pruning
 
 use super::{Searcher, SearchStats, ordering};
+use super::tt::BoundType;
 use crate::types::{Board, Move, Score, Depth, Ply, MoveGen};
 use crate::eval;
 
@@ -21,18 +21,7 @@ pub struct SearchResult {
     pub stats: SearchStats,
 }
 
-/// Main negamax search function
-///
-/// # Arguments
-/// * `searcher` - Searcher state for statistics and stop checking
-/// * `board` - Current position
-/// * `depth` - Remaining depth to search
-/// * `ply` - Current ply from root
-/// * `alpha` - Alpha bound
-/// * `beta` - Beta bound
-///
-/// # Returns
-/// SearchResult with best move and score
+/// Main negamax search function with TT integration
 pub fn search(
     searcher: &mut Searcher,
     board: &Board,
@@ -43,6 +32,55 @@ pub fn search(
 ) -> SearchResult {
     searcher.inc_nodes();
     searcher.update_seldepth(ply);
+
+    let orig_alpha = alpha;
+    let hash = board.get_hash();
+    let mut tt_move: Option<Move> = None;
+
+    // === TT Probe ===
+    if let Some(entry) = searcher.tt.probe(hash) {
+        tt_move = entry.best_move();
+        
+        // Only use TT score if depth is sufficient
+        if entry.depth() >= depth {
+            let tt_score = entry.score().from_tt(ply.raw());
+            
+            match entry.bound() {
+                BoundType::Exact => {
+                    return SearchResult {
+                        best_move: tt_move,
+                        score: tt_score,
+                        pv: tt_move.map(|m| vec![m]).unwrap_or_default(),
+                        stats: searcher.stats().clone(),
+                    };
+                }
+                BoundType::LowerBound => {
+                    if tt_score >= beta {
+                        return SearchResult {
+                            best_move: tt_move,
+                            score: tt_score,
+                            pv: tt_move.map(|m| vec![m]).unwrap_or_default(),
+                            stats: searcher.stats().clone(),
+                        };
+                    }
+                    if tt_score > alpha {
+                        alpha = tt_score;
+                    }
+                }
+                BoundType::UpperBound => {
+                    if tt_score <= alpha {
+                        return SearchResult {
+                            best_move: tt_move,
+                            score: tt_score,
+                            pv: tt_move.map(|m| vec![m]).unwrap_or_default(),
+                            stats: searcher.stats().clone(),
+                        };
+                    }
+                }
+                BoundType::None => {}
+            }
+        }
+    }
 
     // Check for stop condition
     if searcher.should_stop() {
@@ -60,10 +98,8 @@ pub fn search(
     // Check for checkmate or stalemate
     if moves.is_empty() {
         let score = if *board.checkers() != chess::EMPTY {
-            // Checkmate - return mate score adjusted for ply
             Score::mated_in(ply.raw())
         } else {
-            // Stalemate
             Score::draw()
         };
         return SearchResult {
@@ -79,18 +115,19 @@ pub fn search(
         return quiescence(searcher, board, ply, alpha, beta);
     }
 
-    // Order moves for better pruning
-    ordering::order_moves(board, &mut moves);
+    // Order moves (TT move will be searched first if available)
+    ordering::order_moves_with_tt(board, &mut moves, tt_move);
 
     let mut best_move = None;
     let mut best_score = Score::neg_infinity();
     let mut pv = Vec::new();
 
     for &m in moves.iter() {
-        // Make move
         let new_board = board.make_move_new(m);
 
-        // Recursive search
+        // Prefetch TT entry for next position
+        searcher.tt.prefetch(new_board.get_hash());
+
         let result = search(
             searcher,
             &new_board,
@@ -102,7 +139,6 @@ pub fn search(
 
         let score = -result.score;
 
-        // Check for stop during search
         if searcher.should_stop() {
             break;
         }
@@ -111,7 +147,6 @@ pub fn search(
             best_score = score;
             best_move = Some(m);
 
-            // Build PV
             pv.clear();
             pv.push(m);
             pv.extend(result.pv);
@@ -119,13 +154,31 @@ pub fn search(
             if score > alpha {
                 alpha = score;
 
-                // Beta cutoff
                 if score >= beta {
-                    // Future: update killer moves, history heuristic here
+                    // Beta cutoff
                     break;
                 }
             }
         }
+    }
+
+    // === TT Store ===
+    if !searcher.should_stop() {
+        let bound = if best_score >= beta {
+            BoundType::LowerBound
+        } else if best_score > orig_alpha {
+            BoundType::Exact
+        } else {
+            BoundType::UpperBound
+        };
+
+        searcher.tt.store(
+            hash,
+            best_move,
+            best_score.to_tt(ply.raw()),
+            depth,
+            bound,
+        );
     }
 
     SearchResult {
@@ -147,11 +200,9 @@ fn quiescence(
     searcher.inc_nodes();
     searcher.update_seldepth(ply);
 
-    // Stand-pat: evaluate the position
-    // Use NNUE if available (via searcher.nnue)
+    // Stand-pat evaluation
     let stand_pat = eval::evaluate(board, searcher.nnue.as_ref());
 
-    // Beta cutoff
     if stand_pat >= beta {
         return SearchResult {
             best_move: None,
@@ -179,7 +230,6 @@ fn quiescence(
         };
     }
 
-    // Order captures by MVV-LVA
     ordering::order_captures(board, &mut moves);
 
     let mut best_score = stand_pat;

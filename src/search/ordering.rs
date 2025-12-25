@@ -1,17 +1,21 @@
 //! Move ordering heuristics.
 //!
 //! Good move ordering is critical for alpha-beta pruning efficiency.
-//! This module provides ordering functions that can be extended with:
+//! This module provides ordering functions with:
 //! - Transposition table moves (best first)
-//! - Killer moves (quiet moves that caused cutoffs)
-//! - History heuristic (success rate of quiet moves)
-//! - Counter-move heuristic
+//! - MVV-LVA for captures
+//! - Promotion bonuses
+//!
+//! Future extensions: killer moves, history heuristic, counter-move heuristic
 
 use crate::types::{Board, Move, piece_value};
 
+/// Move score constants
+const TT_MOVE_BONUS: i32 = 1_000_000;
+const PROMOTION_BONUS: i32 = 100_000;
+const CAPTURE_BONUS: i32 = 50_000;
+
 /// MVV-LVA scores for capture ordering
-/// Higher score = search first
-/// MVV-LVA: Most Valuable Victim - Least Valuable Attacker
 fn mvv_lva_score(board: &Board, m: Move) -> i32 {
     let victim = board.piece_on(m.get_dest());
     let attacker = board.piece_on(m.get_source());
@@ -19,7 +23,6 @@ fn mvv_lva_score(board: &Board, m: Move) -> i32 {
     match (victim, attacker) {
         (Some(v), Some(a)) => {
             // Victim value * 10 - Attacker value
-            // This prioritizes capturing high-value pieces with low-value pieces
             piece_value(v) * 10 - piece_value(a)
         }
         _ => 0,
@@ -27,32 +30,35 @@ fn mvv_lva_score(board: &Board, m: Move) -> i32 {
 }
 
 /// Score a move for ordering (higher = search first)
-fn score_move(board: &Board, m: Move) -> i32 {
+fn score_move(board: &Board, m: Move, tt_move: Option<Move>) -> i32 {
     let mut score = 0;
+
+    // TT move is always searched first
+    if tt_move == Some(m) {
+        return TT_MOVE_BONUS;
+    }
 
     // Promotions are very important
     if let Some(promo) = m.get_promotion() {
-        score += piece_value(promo) + 10000;
+        score += piece_value(promo) + PROMOTION_BONUS;
     }
 
     // Captures scored by MVV-LVA
     if board.piece_on(m.get_dest()).is_some() {
-        score += mvv_lva_score(board, m) + 5000;
+        score += mvv_lva_score(board, m) + CAPTURE_BONUS;
     }
 
-    // Future: add TT move bonus (+20000)
-    // Future: add killer move bonus (+4000)
+    // Future: add killer move bonus
     // Future: add history heuristic score
 
     score
 }
 
-/// Order moves for main search
-/// Call this before iterating through moves in negamax
-pub fn order_moves(board: &Board, moves: &mut [Move]) {
+/// Order moves for main search with TT move priority
+pub fn order_moves_with_tt(board: &Board, moves: &mut [Move], tt_move: Option<Move>) {
     // Score all moves
     let mut scored: Vec<(Move, i32)> = moves.iter()
-        .map(|&m| (m, score_move(board, m)))
+        .map(|&m| (m, score_move(board, m, tt_move)))
         .collect();
 
     // Sort by score descending (highest first)
@@ -64,9 +70,13 @@ pub fn order_moves(board: &Board, moves: &mut [Move]) {
     }
 }
 
+/// Order moves for main search (without TT move)
+pub fn order_moves(board: &Board, moves: &mut [Move]) {
+    order_moves_with_tt(board, moves, None);
+}
+
 /// Order captures for quiescence search (MVV-LVA only)
 pub fn order_captures(board: &Board, moves: &mut [Move]) {
-    // Score by MVV-LVA
     let mut scored: Vec<(Move, i32)> = moves.iter()
         .map(|&m| (m, mvv_lva_score(board, m)))
         .collect();
@@ -77,14 +87,3 @@ pub fn order_captures(board: &Board, moves: &mut [Move]) {
         moves[i] = m;
     }
 }
-
-// === Future: Killer moves tracking ===
-// pub struct KillerTable {
-//     killers: [[Option<Move>; 2]; MAX_PLY],
-// }
-
-// === Future: History heuristic ===
-// pub struct HistoryTable {
-//     // [color][from][to] -> score
-//     table: [[[i32; 64]; 64]; 2],
-// }

@@ -7,10 +7,10 @@
 //! - `negamax`: Alpha-beta search with negamax framework
 //! - `ordering`: Move ordering heuristics (MVV-LVA, killer moves, history)
 //! - `limits`: Search limits and time management
+//! - `tt`: Transposition table for caching search results
 //!
 //! # Future Extensions
 //! The architecture supports adding:
-//! - Transposition table
 //! - Null move pruning
 //! - Late move reductions (LMR)
 //! - Aspiration windows
@@ -20,9 +20,11 @@
 mod negamax;
 mod ordering;
 mod limits;
+pub mod tt;
 
 pub use limits::{SearchLimits, TimeManager};
 pub use negamax::SearchResult;
+pub use tt::TranspositionTable;
 
 use crate::types::{Board, Move, Score, Depth, Ply, NodeCount};
 use crate::eval::nnue;
@@ -35,6 +37,7 @@ pub struct SearchStats {
     pub depth: Depth,
     pub seldepth: Ply,
     pub time_ms: u64,
+    pub hashfull: u32,
 }
 
 impl SearchStats {
@@ -51,6 +54,8 @@ impl SearchStats {
 pub struct Searcher {
     /// Current board position
     board: Board,
+    /// Transposition table
+    pub tt: TranspositionTable,
     /// Time manager for search limits
     time_manager: TimeManager,
     /// Search statistics
@@ -64,17 +69,14 @@ pub struct Searcher {
     /// Start time of search
     start_time: Option<Instant>,
     /// NNUE Model (thread-safe reference)
-    nnue: Option<nnue::Model>,
-    // === Future extensibility ===
-    // pub tt: TranspositionTable,
-    // pub history: HistoryTable,
-    // pub killers: KillerTable,
+    pub nnue: Option<nnue::Model>,
 }
 
 impl Searcher {
     pub fn new() -> Self {
         Self {
             board: Board::default(),
+            tt: TranspositionTable::default(),
             time_manager: TimeManager::new(),
             stats: SearchStats::default(),
             best_move: None,
@@ -83,6 +85,13 @@ impl Searcher {
             start_time: None,
             nnue: None,
         }
+    }
+
+    /// Create with specific TT size
+    pub fn with_hash_size(size_mb: usize) -> Self {
+        let mut s = Self::new();
+        s.tt = TranspositionTable::new(size_mb);
+        s
     }
 
     /// Set NNUE model
@@ -142,6 +151,9 @@ impl Searcher {
         self.pv.clear();
         self.start_time = Some(Instant::now());
         
+        // Increment TT generation for new search
+        self.tt.new_search();
+        
         // Configure time management
         self.time_manager = TimeManager::from_limits(&limits, self.board.side_to_move());
         
@@ -174,14 +186,12 @@ impl Searcher {
             }
 
             self.stats.depth = Depth::new(depth);
+            self.stats.hashfull = self.tt.hashfull();
             
             // Update time
             if let Some(start) = self.start_time {
                 self.stats.time_ms = start.elapsed().as_millis() as u64;
             }
-
-            // Report info (callback could be added here)
-            // For now, the UCI handler will query stats after search
         }
 
         SearchResult {
