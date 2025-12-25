@@ -9,8 +9,10 @@
 
 use super::{Searcher, SearchStats, ordering, qsearch};
 use super::tt::BoundType;
-use crate::types::{Board, Move, Score, Depth, Ply, MoveGen};
+use crate::types::{Board, Move, Score, Depth, Ply, MoveGen, SCORE_MATE};
 use crate::eval::SearchEvaluator;
+use arrayvec::ArrayVec;
+use std::time::Instant;
 
 /// Result from a search
 #[derive(Debug, Clone)]
@@ -29,7 +31,7 @@ pub fn search(
     depth: Depth,
     ply: Ply,
     mut alpha: Score,
-    beta: Score,
+    mut beta: Score,
     allow_null: bool,
     prev_move: Option<Move>,
 ) -> SearchResult {
@@ -47,6 +49,34 @@ pub fn search(
             pv: Vec::new(),
             stats: searcher.stats().clone(),
         };
+    }
+
+    // Mate distance pruning
+    let mate_score = SCORE_MATE - ply.raw() as i32;
+    let mated_score = -SCORE_MATE + ply.raw() as i32;
+
+    if alpha.raw() < mated_score {
+        alpha = Score(mated_score);
+        if alpha >= beta {
+            return SearchResult {
+                best_move: None,
+                score: alpha,
+                pv: Vec::new(),
+                stats: searcher.stats().clone(),
+            };
+        }
+    }
+
+    if beta.raw() > mate_score {
+        beta = Score(mate_score);
+        if alpha >= beta {
+            return SearchResult {
+                best_move: None,
+                score: beta,
+                pv: Vec::new(),
+                stats: searcher.stats().clone(),
+            };
+        }
     }
 
     let orig_alpha = alpha;
@@ -174,7 +204,9 @@ pub fn search(
     }
 
     // Generate legal moves
-    let mut moves: Vec<Move> = MoveGen::new_legal(board).collect();
+    let t_gen = Instant::now();
+    let mut moves: ArrayVec<Move, 256> = MoveGen::new_legal(board).into_iter().collect();
+    searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
     // Check for checkmate or stalemate
     if moves.is_empty() {
@@ -204,14 +236,33 @@ pub fn search(
     let counter_move = prev_move.and_then(|pm| searcher.countermoves.get(pm));
 
     // Order moves (TT, killers, counter-move, and history)
+    let t_order = Instant::now();
     ordering::order_moves_full(board, &mut moves, tt_move, killers, counter_move, &searcher.history, color);
+    searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
 
     // Cache static eval for futility pruning (only compute once per node)
     let static_eval = if depth.raw() <= 3 && !in_check {
-        Some(evaluator.evaluate(board))
+        searcher.inc_eval_calls();
+        let t_eval = Instant::now();
+        let val = evaluator.evaluate(board);
+        searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
+        Some(val)
     } else {
         None
     };
+    
+    // Razoring
+    if depth.raw() <= 3 && (beta.raw() - alpha.raw() == 1) && !in_check {
+        if let Some(eval) = static_eval {
+            let threshold = alpha - Score::cp(300 + depth.raw() as i32 * 100);
+            if eval < threshold {
+                let result = qsearch::quiescence(searcher, evaluator, board, ply, alpha, beta);
+                 if result.score < alpha {
+                    return result; 
+                }
+            }
+        }
+    }
 
     let mut best_move = None;
     let mut best_score = Score::neg_infinity();

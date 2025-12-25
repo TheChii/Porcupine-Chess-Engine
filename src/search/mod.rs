@@ -47,6 +47,13 @@ pub struct SearchStats {
     pub seldepth: Ply,
     pub time_ms: u64,
     pub hashfull: u32,
+    pub qnodes: NodeCount,
+    pub eval_calls: u64,
+    // Profiling stats (ns)
+    pub time_gen: u64,
+    pub time_eval: u64,
+    pub time_order: u64,
+    pub time_search: u64, // (Rest of time)
 }
 
 impl SearchStats {
@@ -55,6 +62,23 @@ impl SearchStats {
             self.nodes * 1000 / self.time_ms
         } else {
             0
+        }
+    }
+
+    pub fn print_profiling(&self) {
+        let total_ns = self.time_ms * 1_000_000;
+        if total_ns > 0 {
+            let gen_pct = self.time_gen * 100 / total_ns;
+            let eval_pct = self.time_eval * 100 / total_ns;
+            let order_pct = self.time_order * 100 / total_ns;
+            let other = total_ns.saturating_sub(self.time_gen + self.time_eval + self.time_order);
+            let other_pct = other * 100 / total_ns;
+            
+            println!("profiling: gen {}% eval {}% order {}% other {}%", 
+                gen_pct, eval_pct, order_pct, other_pct);
+            
+            // Also print raw calls for clarity if requested
+             println!("stats: qnodes {} evals {}", self.qnodes, self.eval_calls);
         }
     }
 }
@@ -282,17 +306,23 @@ impl Searcher {
 
             // Print info for this depth
             if !self.should_stop() {
+                self.stats.print_profiling();
+                if let Some(start) = self.start_time {
+                   self.stats.time_search = start.elapsed().as_nanos() as u64;
+                }
                 let pv_str: String = self.pv.iter()
                     .map(|m| m.to_string())
                     .collect::<Vec<_>>()
                     .join(" ");
                     
                 println!(
-                    "info depth {} seldepth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
+                    "info depth {} seldepth {} score {} nodes {} qnodes {} evals {} nps {} time {} hashfull {} pv {}",
                     depth,
                     self.stats.seldepth.raw(),
                     best_score,
                     self.stats.nodes,
+                    self.stats.qnodes,
+                    self.stats.eval_calls,
                     self.stats.nps(),
                     self.stats.time_ms,
                     self.stats.hashfull,
@@ -321,6 +351,33 @@ impl Searcher {
         if ply.raw() > self.stats.seldepth.raw() {
             self.stats.seldepth = ply;
         }
+    }
+
+    #[inline]
+    pub fn add_gen_time(&mut self, ns: u64) {
+        self.stats.time_gen += ns;
+    }
+
+    #[inline]
+    pub fn add_eval_time(&mut self, ns: u64) {
+        self.stats.time_eval += ns;
+    }
+
+    #[inline]
+    pub fn add_order_time(&mut self, ns: u64) {
+        self.stats.time_order += ns;
+    }
+
+    /// Increment qnodes counter
+    #[inline]
+    pub fn inc_qnodes(&mut self) {
+        self.stats.qnodes += 1;
+    }
+
+    /// Increment eval call counter
+    #[inline]
+    pub fn inc_eval_calls(&mut self) {
+        self.stats.eval_calls += 1;
     }
 }
 

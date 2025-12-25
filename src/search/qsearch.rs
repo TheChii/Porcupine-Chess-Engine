@@ -7,6 +7,8 @@ use super::{Searcher, ordering};
 use super::negamax::SearchResult;
 use crate::types::{Board, Move, Score, Ply, MoveGen};
 use crate::eval::SearchEvaluator;
+use arrayvec::ArrayVec;
+use std::time::Instant;
 
 /// Quiescence search - search captures only to avoid horizon effect
 pub fn quiescence(
@@ -18,10 +20,14 @@ pub fn quiescence(
     beta: Score,
 ) -> SearchResult {
     searcher.inc_nodes();
+    searcher.inc_qnodes();
     searcher.update_seldepth(ply);
 
     // Stand-pat evaluation using incremental evaluator
+    searcher.inc_eval_calls();
+    let t_eval = Instant::now();
     let stand_pat = evaluator.evaluate(board);
+    searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
 
     if stand_pat >= beta {
         return SearchResult {
@@ -36,18 +42,15 @@ pub fn quiescence(
         alpha = stand_pat;
     }
 
-    // Generate capture moves only - use fixed array
-    let mut moves: [Move; 64] = [Move::default(); 64];
-    let mut move_count = 0;
-    
-    for m in MoveGen::new_legal(board) {
-        if board.piece_on(m.get_dest()).is_some() && move_count < 64 {
-            moves[move_count] = m;
-            move_count += 1;
-        }
-    }
+    // Generate capture moves only - use ArrayVec
+    let t_gen = Instant::now();
+    let mut moves: ArrayVec<Move, 64> = MoveGen::new_legal(board)
+        .filter(|m| board.piece_on(m.get_dest()).is_some())
+        .take(64)
+        .collect();
+    searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
-    if move_count == 0 {
+    if moves.is_empty() {
         return SearchResult {
             best_move: None,
             score: alpha,
@@ -56,12 +59,14 @@ pub fn quiescence(
         };
     }
 
-    ordering::order_captures(board, &mut moves[..move_count]);
+    let t_order = Instant::now();
+    ordering::order_captures(board, &mut moves);
+    searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
 
     let mut best_score = stand_pat;
     let mut pv = Vec::new();
 
-    for i in 0..move_count {
+    for i in 0..moves.len() {
         let m = moves[i];
         if searcher.should_stop() {
             break;

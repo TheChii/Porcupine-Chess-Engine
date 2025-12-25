@@ -7,3 +7,4 @@ edition = "2021"
 chess = "3"
 nnue = { path = "nnue-rs" }
 binread = "2"
+arrayvec = "0.7.6"
