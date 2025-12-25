@@ -21,10 +21,12 @@ mod negamax;
 mod ordering;
 mod limits;
 pub mod tt;
+mod killers;
 
 pub use limits::{SearchLimits, TimeManager};
 pub use negamax::SearchResult;
 pub use tt::TranspositionTable;
+pub use killers::KillerTable;
 
 use crate::types::{Board, Move, Score, Depth, Ply, NodeCount};
 use crate::eval::nnue;
@@ -56,6 +58,8 @@ pub struct Searcher {
     board: Board,
     /// Transposition table
     pub tt: TranspositionTable,
+    /// Killer moves table
+    pub killers: KillerTable,
     /// Time manager for search limits
     time_manager: TimeManager,
     /// Search statistics
@@ -77,6 +81,7 @@ impl Searcher {
         Self {
             board: Board::default(),
             tt: TranspositionTable::default(),
+            killers: KillerTable::new(),
             time_manager: TimeManager::new(),
             stats: SearchStats::default(),
             best_move: None,
@@ -153,6 +158,9 @@ impl Searcher {
         
         // Increment TT generation for new search
         self.tt.new_search();
+        
+        // Clear killer moves for new search
+        self.killers.clear();
         
         // Configure time management
         self.time_manager = TimeManager::from_limits(&limits, self.board.side_to_move());

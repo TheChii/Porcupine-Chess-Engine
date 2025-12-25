@@ -115,8 +115,11 @@ pub fn search(
         return quiescence(searcher, board, ply, alpha, beta);
     }
 
-    // Order moves (TT move will be searched first if available)
-    ordering::order_moves_with_tt(board, &mut moves, tt_move);
+    // Get killers for this ply
+    let killers = searcher.killers.get(ply);
+
+    // Order moves (TT move and killers will be searched first)
+    ordering::order_moves_with_tt_and_killers(board, &mut moves, tt_move, killers);
 
     let mut best_move = None;
     let mut best_score = Score::neg_infinity();
@@ -155,7 +158,10 @@ pub fn search(
                 alpha = score;
 
                 if score >= beta {
-                    // Beta cutoff
+                    // Beta cutoff - store killer if quiet move
+                    if board.piece_on(m.get_dest()).is_none() && m.get_promotion().is_none() {
+                        searcher.killers.store(ply, m);
+                    }
                     break;
                 }
             }
