@@ -250,12 +250,14 @@ impl Searcher {
             return false;
         }
         
-        // Early termination: if best move has been stable for 4+ iterations
-        // and we've used more than 20% of soft limit, we can stop early
-        if self.stable_move_count >= 4 {
+        // Early termination: if best move has been stable for many iterations
+        // and we've used a good portion of soft limit, we can stop early
+        // Be conservative - only stop if very confident
+        if self.stable_move_count >= 6 {
             let elapsed = self.time_manager.elapsed();
             let soft = self.time_manager.soft_limit_ms();
-            if elapsed > soft / 5 {
+            // Only stop early if we've used at least 40% of our soft limit
+            if elapsed > (soft * 2) / 5 {
                 return false;
             }
         }
@@ -358,8 +360,9 @@ impl Searcher {
                 break;
             }
             
-            // Early termination: stop when forced mate is found
-            if best_score.is_mate() && self.best_move.is_some() {
+            // Early termination: stop when forced mate is found (winning or losing)
+            // No point searching further if we've found a forced mate
+            if best_score.is_mate_score() && self.best_move.is_some() {
                 break;
             }
 

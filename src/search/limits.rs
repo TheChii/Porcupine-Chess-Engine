@@ -111,15 +111,15 @@ impl TimeManager {
 
         let move_overhead = limits.move_overhead;
 
-        // Fixed movetime - use stricter limits to avoid time losses
-        // Soft limit: 85% of available time (stop after iteration)
-        // Hard limit: 95% of available time (absolute stop during search)
+        // Fixed movetime - use more time since we have a hard budget
+        // Soft limit: 92% of available time (when to consider stopping after iteration)
+        // Hard limit: 98% of available time (absolute stop, leave small buffer)
         if let Some(mt) = limits.movetime {
             let available = mt.saturating_sub(move_overhead);
-            // Use 85% for soft limit (when to stop starting new iterations)
-            let soft = (available * 85) / 100;
-            // Use 95% for hard limit (absolute cutoff mid-search)
-            let hard = (available * 95) / 100;
+            // Use 92% for soft limit - try to complete more iterations
+            let soft = (available * 92) / 100;
+            // Use 98% for hard limit - leave only 2% buffer for move transmission
+            let hard = (available * 98) / 100;
             return Self {
                 soft_limit: soft.max(1),
                 hard_limit: hard.max(1),
@@ -129,7 +129,7 @@ impl TimeManager {
             };
         }
 
-        // Time control
+        // Time control with wtime/btime
         let (time_left, increment) = match side {
             Color::White => (limits.wtime, limits.winc),
             Color::Black => (limits.btime, limits.binc),
@@ -137,23 +137,54 @@ impl TimeManager {
 
         if let Some(time) = time_left {
             let inc = increment.unwrap_or(0);
-            let moves_to_go = limits.movestogo.unwrap_or(30) as u64;
             
             // Subtract overhead from available time
             let available = time.saturating_sub(move_overhead);
             
-            // Base time allocation
-            let base_time = available / moves_to_go.max(1);
+            // Estimate moves remaining based on time situation
+            let mtg = if let Some(movestogo) = limits.movestogo {
+                // Explicit moves to go (sudden death with X moves per period)
+                movestogo as u64
+            } else {
+                // No explicit moves-to-go, estimate based on time left
+                // Use a dynamic estimate: more time = more conservative
+                // Less time = more aggressive (assume game is ending)
+                if available > 300000 {
+                    // > 5 min: assume 40 moves remaining
+                    40
+                } else if available > 120000 {
+                    // 2-5 min: assume 30 moves 
+                    30
+                } else if available > 60000 {
+                    // 1-2 min: assume 25 moves
+                    25
+                } else if available > 30000 {
+                    // 30s-1min: assume 20 moves
+                    20
+                } else if available > 10000 {
+                    // 10-30s: assume 15 moves
+                    15
+                } else {
+                    // < 10s: panic mode, 10 moves
+                    10
+                }
+            }.max(1);
             
-            // Add portion of increment to soft limit
-            let inc_bonus = (inc * 3) / 4;
+            // Base time allocation per move
+            let base_time = available / mtg;
             
-            // Soft limit: base + increment bonus
-            let soft = (base_time + inc_bonus).min(available);
+            // Add most of increment to our budget (we'll get it back after moving)
+            let inc_bonus = (inc * 85) / 100;  // Use 85% of increment
             
-            // Hard limit: min(3x soft, 25% of available time)
-            // This prevents using too much time on one move
-            let hard = (soft * 3).min(available / 4).max(soft);
+            // Soft limit: base + increment bonus, but cap at reasonable portion of remaining time
+            let soft = (base_time + inc_bonus).min(available / 3);
+            
+            // Hard limit: allow up to 3x soft for critical moves, but never more than 50% of remaining
+            let hard = (soft * 3).min(available / 2).max(soft);
+            
+            // Minimum thresholds to avoid instant moves
+            let soft = soft.max(100); // At least 100ms
+            let hard = hard.max(200); // At least 200ms
             
             return Self {
                 soft_limit: soft,
