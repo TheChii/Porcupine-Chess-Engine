@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 movegen = { path = "ferrum-movegen", package = "ferrum-movegen" }
-nnue = { path = "nnue-rs" }
+nnue = { path = "ferrum-nnue" }
 binread = "2"
