@@ -1,39 +1,34 @@
-//! Hand-Crafted Evaluation (HCE) - Advanced classical evaluation
+//! Hand-Crafted Evaluation (HCE) - Speed Optimized
 //!
-//! Features:
-//! - Tapered evaluation (midgame/endgame interpolation)
-//! - Piece-Square Tables
-//! - Mobility
-//! - Pawn structure (doubled, isolated, passed)
-//! - King safety (midgame) and centralization (endgame)
-//! - Endgame-specific bonuses
+//! Ultra-fast classical evaluation with:
+//! - Material + PST in single pass
+//! - Tapered evaluation
+//! - Minimal branching
 
 use crate::types::{Board, Score, Color, Piece, Bitboard};
-use movegen::{Square, Rank, File};
+use movegen::Square;
 
 // ============================================================================
-// PIECE VALUES (centipawns)
+// PIECE VALUES (packed: [MG, EG] per piece)
 // ============================================================================
 
-const PAWN_MG: i32 = 100;
-const KNIGHT_MG: i32 = 320;
-const BISHOP_MG: i32 = 330;
-const ROOK_MG: i32 = 500;
-const QUEEN_MG: i32 = 900;
-
-const PAWN_EG: i32 = 120;
-const KNIGHT_EG: i32 = 300;
-const BISHOP_EG: i32 = 320;
-const ROOK_EG: i32 = 550;
-const QUEEN_EG: i32 = 950;
+const PIECE_VAL: [(i32, i32); 6] = [
+    (100, 120),   // Pawn
+    (320, 300),   // Knight
+    (330, 320),   // Bishop
+    (500, 550),   // Rook
+    (950, 1000),  // Queen
+    (0, 0),       // King
+];
 
 // ============================================================================
-// PIECE-SQUARE TABLES (from white's perspective, a1=0)
+// PIECE-SQUARE TABLES (packed MG, indexed by piece * 64 + square)
+// Using flat array for cache efficiency
 // ============================================================================
 
-// Pawn PST (encourage center control and advancement)
 #[rustfmt::skip]
-const PAWN_PST_MG: [i32; 64] = [
+static PST_MG: [i32; 384] = [
+    // Pawn (0-63)
      0,  0,  0,  0,  0,  0,  0,  0,
     50, 50, 50, 50, 50, 50, 50, 50,
     10, 10, 20, 30, 30, 20, 10, 10,
@@ -42,23 +37,7 @@ const PAWN_PST_MG: [i32; 64] = [
      5, -5,-10,  0,  0,-10, -5,  5,
      5, 10, 10,-20,-20, 10, 10,  5,
      0,  0,  0,  0,  0,  0,  0,  0,
-];
-
-#[rustfmt::skip]
-const PAWN_PST_EG: [i32; 64] = [
-     0,  0,  0,  0,  0,  0,  0,  0,
-    80, 80, 80, 80, 80, 80, 80, 80,
-    50, 50, 50, 50, 50, 50, 50, 50,
-    30, 30, 30, 30, 30, 30, 30, 30,
-    20, 20, 20, 20, 20, 20, 20, 20,
-    10, 10, 10, 10, 10, 10, 10, 10,
-     5,  5,  5,  5,  5,  5,  5,  5,
-     0,  0,  0,  0,  0,  0,  0,  0,
-];
-
-// Knight PST (encourage centralization)
-#[rustfmt::skip]
-const KNIGHT_PST_MG: [i32; 64] = [
+    // Knight (64-127)
    -50,-40,-30,-30,-30,-30,-40,-50,
    -40,-20,  0,  0,  0,  0,-20,-40,
    -30,  0, 10, 15, 15, 10,  0,-30,
@@ -67,11 +46,7 @@ const KNIGHT_PST_MG: [i32; 64] = [
    -30,  5, 10, 15, 15, 10,  5,-30,
    -40,-20,  0,  5,  5,  0,-20,-40,
    -50,-40,-30,-30,-30,-30,-40,-50,
-];
-
-// Bishop PST
-#[rustfmt::skip]
-const BISHOP_PST_MG: [i32; 64] = [
+    // Bishop (128-191)
    -20,-10,-10,-10,-10,-10,-10,-20,
    -10,  0,  0,  0,  0,  0,  0,-10,
    -10,  0,  5, 10, 10,  5,  0,-10,
@@ -80,11 +55,7 @@ const BISHOP_PST_MG: [i32; 64] = [
    -10, 10, 10, 10, 10, 10, 10,-10,
    -10,  5,  0,  0,  0,  0,  5,-10,
    -20,-10,-10,-10,-10,-10,-10,-20,
-];
-
-// Rook PST (7th rank bonus, open files)
-#[rustfmt::skip]
-const ROOK_PST_MG: [i32; 64] = [
+    // Rook (192-255)
      0,  0,  0,  0,  0,  0,  0,  0,
      5, 10, 10, 10, 10, 10, 10,  5,
     -5,  0,  0,  0,  0,  0,  0, -5,
@@ -93,11 +64,7 @@ const ROOK_PST_MG: [i32; 64] = [
     -5,  0,  0,  0,  0,  0,  0, -5,
     -5,  0,  0,  0,  0,  0,  0, -5,
      0,  0,  0,  5,  5,  0,  0,  0,
-];
-
-// Queen PST
-#[rustfmt::skip]
-const QUEEN_PST_MG: [i32; 64] = [
+    // Queen (256-319)
    -20,-10,-10, -5, -5,-10,-10,-20,
    -10,  0,  0,  0,  0,  0,  0,-10,
    -10,  0,  5,  5,  5,  5,  0,-10,
@@ -106,11 +73,7 @@ const QUEEN_PST_MG: [i32; 64] = [
    -10,  5,  5,  5,  5,  5,  0,-10,
    -10,  0,  5,  0,  0,  0,  0,-10,
    -20,-10,-10, -5, -5,-10,-10,-20,
-];
-
-// King PST - midgame (encourage castling, hide)
-#[rustfmt::skip]
-const KING_PST_MG: [i32; 64] = [
+    // King MG (320-383)
    -30,-40,-40,-50,-50,-40,-40,-30,
    -30,-40,-40,-50,-50,-40,-40,-30,
    -30,-40,-40,-50,-50,-40,-40,-30,
@@ -121,9 +84,54 @@ const KING_PST_MG: [i32; 64] = [
     20, 30, 10,  0,  0, 10, 30, 20,
 ];
 
-// King PST - endgame (encourage centralization)
 #[rustfmt::skip]
-const KING_PST_EG: [i32; 64] = [
+static PST_EG: [i32; 384] = [
+    // Pawn EG (0-63)
+     0,  0,  0,  0,  0,  0,  0,  0,
+   100,100,100,100,100,100,100,100,
+    60, 60, 60, 60, 60, 60, 60, 60,
+    40, 40, 40, 40, 40, 40, 40, 40,
+    25, 25, 25, 25, 25, 25, 25, 25,
+    10, 10, 10, 10, 10, 10, 10, 10,
+     5,  5,  5,  5,  5,  5,  5,  5,
+     0,  0,  0,  0,  0,  0,  0,  0,
+    // Knight EG (64-127) - same as MG
+   -50,-40,-30,-30,-30,-30,-40,-50,
+   -40,-20,  0,  0,  0,  0,-20,-40,
+   -30,  0, 10, 15, 15, 10,  0,-30,
+   -30,  5, 15, 20, 20, 15,  5,-30,
+   -30,  0, 15, 20, 20, 15,  0,-30,
+   -30,  5, 10, 15, 15, 10,  5,-30,
+   -40,-20,  0,  5,  5,  0,-20,-40,
+   -50,-40,-30,-30,-30,-30,-40,-50,
+    // Bishop EG (128-191)
+   -20,-10,-10,-10,-10,-10,-10,-20,
+   -10,  0,  0,  0,  0,  0,  0,-10,
+   -10,  0,  5, 10, 10,  5,  0,-10,
+   -10,  5,  5, 10, 10,  5,  5,-10,
+   -10,  0, 10, 10, 10, 10,  0,-10,
+   -10, 10, 10, 10, 10, 10, 10,-10,
+   -10,  5,  0,  0,  0,  0,  5,-10,
+   -20,-10,-10,-10,-10,-10,-10,-20,
+    // Rook EG (192-255)
+     0,  0,  0,  0,  0,  0,  0,  0,
+     5, 10, 10, 10, 10, 10, 10,  5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+     0,  0,  0,  5,  5,  0,  0,  0,
+    // Queen EG (256-319)
+   -20,-10,-10, -5, -5,-10,-10,-20,
+   -10,  0,  0,  0,  0,  0,  0,-10,
+   -10,  0,  5,  5,  5,  5,  0,-10,
+    -5,  0,  5,  5,  5,  5,  0, -5,
+     0,  0,  5,  5,  5,  5,  0, -5,
+   -10,  5,  5,  5,  5,  5,  0,-10,
+   -10,  0,  5,  0,  0,  0,  0,-10,
+   -20,-10,-10, -5, -5,-10,-10,-20,
+    // King EG (320-383) - centralization
    -50,-40,-30,-20,-20,-30,-40,-50,
    -30,-20,-10,  0,  0,-10,-20,-30,
    -30,-10, 20, 30, 30, 20,-10,-30,
@@ -134,295 +142,94 @@ const KING_PST_EG: [i32; 64] = [
    -50,-30,-30,-30,-30,-30,-30,-50,
 ];
 
-// ============================================================================
-// BONUSES AND PENALTIES
-// ============================================================================
-
-const BISHOP_PAIR_BONUS: i32 = 30;
-const DOUBLED_PAWN_PENALTY: i32 = -10;
-const ISOLATED_PAWN_PENALTY: i32 = -20;
-const PASSED_PAWN_BONUS: [i32; 8] = [0, 10, 20, 40, 60, 90, 130, 0]; // by rank (2-7)
-const ROOK_ON_OPEN_FILE: i32 = 20;
-const ROOK_ON_SEMI_OPEN: i32 = 10;
-const ROOK_ON_7TH: i32 = 30;
+const BISHOP_PAIR: i32 = 30;
 
 // ============================================================================
-// GAME PHASE
+// EVALUATION
 // ============================================================================
 
-/// Calculate game phase (0 = endgame, 256 = opening)
-/// Based on non-pawn material
+/// Main evaluation function - returns score from side-to-move perspective
 #[inline]
-fn game_phase(board: &Board) -> i32 {
-    let knight_phase = 1;
-    let bishop_phase = 1;
-    let rook_phase = 2;
-    let queen_phase = 4;
-    let total_phase = 4 * knight_phase + 4 * bishop_phase + 4 * rook_phase + 2 * queen_phase;
-    
-    let mut phase = total_phase;
-    
-    phase -= (board.piece_bb(Piece::Knight).count() as i32) * knight_phase;
-    phase -= (board.piece_bb(Piece::Bishop).count() as i32) * bishop_phase;
-    phase -= (board.piece_bb(Piece::Rook).count() as i32) * rook_phase;
-    phase -= (board.piece_bb(Piece::Queen).count() as i32) * queen_phase;
-    
-    // Normalize to 0-256 range
-    ((phase * 256 + total_phase / 2) / total_phase).max(0).min(256)
-}
-
-/// Interpolate between midgame and endgame scores based on phase
-#[inline]
-fn taper(mg: i32, eg: i32, phase: i32) -> i32 {
-    // phase: 0 = endgame, 256 = opening
-    ((mg * (256 - phase)) + (eg * phase)) / 256
-}
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/// Get PST index for a square from white's perspective
-#[inline]
-fn pst_index(sq: Square, color: Color) -> usize {
-    let idx = sq.index() as usize;
-    if color == Color::White {
-        // Flip for white (rank 1 -> rank 8)
-        idx ^ 56
-    } else {
-        idx
-    }
-}
-
-/// Get bitboard for a file
-#[inline]
-const fn get_file_bb(file: File) -> u64 {
-    0x0101010101010101u64 << (file.index())
-}
-
-/// Count pawns on a file for a color
-#[inline]
-fn pawns_on_file(board: &Board, color: Color, file: File) -> u32 {
-    let file_bb = Bitboard::new(get_file_bb(file));
-    (board.piece_bb(Piece::Pawn) & board.color_bb(color) & file_bb).count()
-}
-
-/// Check if a file is open (no pawns)
-#[inline]
-fn is_open_file(board: &Board, file: File) -> bool {
-    let file_bb = Bitboard::new(get_file_bb(file));
-    (board.piece_bb(Piece::Pawn) & file_bb).is_empty()
-}
-
-/// Check if a file is semi-open for a color (no friendly pawns)
-#[inline]
-fn is_semi_open_file(board: &Board, color: Color, file: File) -> bool {
-    let file_bb = Bitboard::new(get_file_bb(file));
-    (board.piece_bb(Piece::Pawn) & board.color_bb(color) & file_bb).is_empty()
-}
-
-/// Check if a pawn is passed
-#[inline]
-fn is_passed_pawn(board: &Board, sq: Square, color: Color) -> bool {
-    let file = sq.file();
-    let rank = sq.rank();
-    let enemy = !color;
-    
-    let file_idx = file.index();
-    let rank_idx = rank.index();
-    
-    // Get adjacent files + same file
-    let mut check_mask = 0u64;
-    if file_idx > 0 {
-        check_mask |= get_file_bb(File::from_index(file_idx - 1).unwrap());
-    }
-    check_mask |= get_file_bb(file);
-    if file_idx < 7 {
-        check_mask |= get_file_bb(File::from_index(file_idx + 1).unwrap());
-    }
-    let check_files = Bitboard::new(check_mask);
-    
-    // Get ranks in front of pawn
-    let front_ranks: Bitboard = if color == Color::White {
-        // Ranks above this pawn
-        Bitboard::new(!((1u64 << ((rank_idx as u8 + 1) * 8)) - 1))
-    } else {
-        // Ranks below this pawn
-        Bitboard::new((1u64 << (rank_idx as u8 * 8)) - 1)
-    };
-    
-    let blocking_area = check_files & front_ranks;
-    (board.piece_bb(Piece::Pawn) & board.color_bb(enemy) & blocking_area).is_empty()
-}
-
-/// Check if a pawn is isolated (no friendly pawns on adjacent files)
-#[inline]
-fn is_isolated_pawn(board: &Board, sq: Square, color: Color) -> bool {
-    let file = sq.file();
-    let file_idx = file.index();
-    
-    let mut adj_mask = 0u64;
-    if file_idx > 0 {
-        adj_mask |= get_file_bb(File::from_index(file_idx - 1).unwrap());
-    }
-    if file_idx < 7 {
-        adj_mask |= get_file_bb(File::from_index(file_idx + 1).unwrap());
-    }
-    let adj_files = Bitboard::new(adj_mask);
-    
-    (board.piece_bb(Piece::Pawn) & board.color_bb(color) & adj_files).is_empty()
-}
-
-// ============================================================================
-// MAIN EVALUATION FUNCTION
-// ============================================================================
-
-/// Evaluate the position from white's perspective
 pub fn evaluate(board: &Board) -> Score {
-    let phase = game_phase(board);
-    let mut mg_score: i32 = 0;
-    let mut eg_score: i32 = 0;
-    
-    // Evaluate each color
-    for &color in &[Color::White, Color::Black] {
-        let sign = if color == Color::White { 1 } else { -1 };
-        
-        // === MATERIAL AND PST ===
-        
-        // Pawns
-        for sq in board.piece_bb(Piece::Pawn) & board.color_bb(color) {
-            mg_score += sign * PAWN_MG;
-            eg_score += sign * PAWN_EG;
-            let idx = pst_index(sq, color);
-            mg_score += sign * PAWN_PST_MG[idx];
-            eg_score += sign * PAWN_PST_EG[idx];
-            
-            // Pawn structure
-            let file = sq.file();
-            
-            // Doubled pawns
-            if pawns_on_file(board, color, file) > 1 {
-                mg_score += sign * DOUBLED_PAWN_PENALTY;
-                eg_score += sign * DOUBLED_PAWN_PENALTY;
-            }
-            
-            // Isolated pawns
-            if is_isolated_pawn(board, sq, color) {
-                mg_score += sign * ISOLATED_PAWN_PENALTY;
-                eg_score += sign * ISOLATED_PAWN_PENALTY;
-            }
-            
-            // Passed pawns
-            if is_passed_pawn(board, sq, color) {
-                let rank = sq.rank();
-                let rank_idx = if color == Color::White {
-                    rank.index()
-                } else {
-                    7 - rank.index()
-                };
-                let bonus = PASSED_PAWN_BONUS[(rank_idx as usize).min(7)];
-                mg_score += sign * bonus / 2; // Half in midgame
-                eg_score += sign * bonus;     // Full in endgame
-            }
-        }
-        
-        // Knights
-        for sq in board.piece_bb(Piece::Knight) & board.color_bb(color) {
-            mg_score += sign * KNIGHT_MG;
-            eg_score += sign * KNIGHT_EG;
-            let idx = pst_index(sq, color);
-            mg_score += sign * KNIGHT_PST_MG[idx];
-            eg_score += sign * KNIGHT_PST_MG[idx]; // Same for EG
-        }
-        
-        // Bishops
-        let bishops = board.piece_bb(Piece::Bishop) & board.color_bb(color);
-        for sq in bishops {
-            mg_score += sign * BISHOP_MG;
-            eg_score += sign * BISHOP_EG;
-            let idx = pst_index(sq, color);
-            mg_score += sign * BISHOP_PST_MG[idx];
-            eg_score += sign * BISHOP_PST_MG[idx];
-        }
-        // Bishop pair
-        if bishops.count() >= 2 {
-            mg_score += sign * BISHOP_PAIR_BONUS;
-            eg_score += sign * BISHOP_PAIR_BONUS;
-        }
-        
-        // Rooks
-        for sq in board.piece_bb(Piece::Rook) & board.color_bb(color) {
-            mg_score += sign * ROOK_MG;
-            eg_score += sign * ROOK_EG;
-            let idx = pst_index(sq, color);
-            mg_score += sign * ROOK_PST_MG[idx];
-            eg_score += sign * ROOK_PST_MG[idx];
-            
-            let file = sq.file();
-            let rank = sq.rank();
-            
-            // Open/semi-open file bonus
-            if is_open_file(board, file) {
-                mg_score += sign * ROOK_ON_OPEN_FILE;
-                eg_score += sign * ROOK_ON_OPEN_FILE;
-            } else if is_semi_open_file(board, color, file) {
-                mg_score += sign * ROOK_ON_SEMI_OPEN;
-                eg_score += sign * ROOK_ON_SEMI_OPEN;
-            }
-            
-            // Rook on 7th rank
-            let seventh = if color == Color::White { Rank::R7 } else { Rank::R2 };
-            if rank == seventh {
-                mg_score += sign * ROOK_ON_7TH;
-                eg_score += sign * ROOK_ON_7TH;
-            }
-        }
-        
-        // Queens
-        for sq in board.piece_bb(Piece::Queen) & board.color_bb(color) {
-            mg_score += sign * QUEEN_MG;
-            eg_score += sign * QUEEN_EG;
-            let idx = pst_index(sq, color);
-            mg_score += sign * QUEEN_PST_MG[idx];
-            eg_score += sign * QUEEN_PST_MG[idx];
-        }
-        
-        // King
-        let king_sq = board.king_square(color);
-        let idx = pst_index(king_sq, color);
-        mg_score += sign * KING_PST_MG[idx];
-        eg_score += sign * KING_PST_EG[idx];
-    }
-    
-    // Taper the score
-    let final_score = taper(eg_score, mg_score, phase);
-    
-    // Return from side-to-move perspective
+    // Calculate phase once
+    let phase = {
+        let n = board.piece_bb(Piece::Knight).count() as i32;
+        let b = board.piece_bb(Piece::Bishop).count() as i32;
+        let r = board.piece_bb(Piece::Rook).count() as i32;
+        let q = board.piece_bb(Piece::Queen).count() as i32;
+        let material = n + b + 2 * r + 4 * q;
+        ((24 - material) * 256 / 24).clamp(0, 256)
+    };
+
+    let mut mg = 0i32;
+    let mut eg = 0i32;
+
+    // Evaluate white
+    eval_color::<true>(board, &mut mg, &mut eg);
+    // Evaluate black (subtract)
+    eval_color::<false>(board, &mut mg, &mut eg);
+
+    // Taper
+    let score = (mg * (256 - phase) + eg * phase) / 256;
+
     if board.turn() == Color::White {
-        Score::cp(final_score)
+        Score::cp(score)
     } else {
-        Score::cp(-final_score)
+        Score::cp(-score)
+    }
+}
+
+/// Evaluate one color using const generic for sign
+#[inline(always)]
+fn eval_color<const IS_WHITE: bool>(board: &Board, mg: &mut i32, eg: &mut i32) {
+    let color = if IS_WHITE { Color::White } else { Color::Black };
+    let sign = if IS_WHITE { 1 } else { -1 };
+
+    // Process each piece type
+    for (piece_idx, &piece) in [Piece::Pawn, Piece::Knight, Piece::Bishop, 
+                                 Piece::Rook, Piece::Queen, Piece::King].iter().enumerate() {
+        let pieces = board.piece_bb(piece) & board.color_bb(color);
+        let base_idx = piece_idx * 64;
+        let (mat_mg, mat_eg) = PIECE_VAL[piece_idx];
+
+        for sq in pieces {
+            let sq_idx = if IS_WHITE { (sq.index() as usize) ^ 56 } else { sq.index() as usize };
+            let pst_idx = base_idx + sq_idx;
+
+            // Material (not for king)
+            if piece_idx < 5 {
+                *mg += sign * mat_mg;
+                *eg += sign * mat_eg;
+            }
+
+            // PST
+            *mg += sign * PST_MG[pst_idx];
+            *eg += sign * PST_EG[pst_idx];
+        }
+    }
+
+    // Bishop pair
+    if (board.piece_bb(Piece::Bishop) & board.color_bb(color)).count() >= 2 {
+        *mg += sign * BISHOP_PAIR;
+        *eg += sign * BISHOP_PAIR;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_starting_position() {
         let board = Board::default();
         let score = evaluate(&board);
-        // Starting position should be roughly equal
         assert!(score.raw().abs() < 50);
     }
-    
+
     #[test]
     fn test_material_advantage() {
-        // White up a queen
         let board = Board::from_fen("rnb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").unwrap();
         let score = evaluate(&board);
-        // White should have big advantage
         assert!(score.raw() > 800);
     }
 }

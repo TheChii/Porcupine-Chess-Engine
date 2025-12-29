@@ -26,7 +26,7 @@ impl<'a> SearchEvaluator<'a> {
     pub fn new(model: Option<&'a nnue::Model>, board: &Board) -> Self {
         match model {
             Some(m) => Self::Nnue(NnueEvaluator::new(&m.model, board)),
-            None => Self::Material,
+            None => Self::Hce, // Use HCE as fallback
         }
     }
 
