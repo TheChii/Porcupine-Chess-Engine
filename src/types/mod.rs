@@ -1,11 +1,11 @@
 //! Core types for the chess engine.
 //!
 //! This module provides unified types that integrate seamlessly with:
-//! - `chess` crate (move generation)
+//! - `movegen` crate (move generation) - custom ferrum-movegen library
 //! - `nnue` crate (evaluation)
 //!
 //! # Design Principles
-//! - Re-export chess crate types as the canonical source for board/move types
+//! - Re-export movegen crate types as the canonical source for board/move types
 //! - Provide conversion traits to bridge with nnue types
 //! - Define engine-specific types (Score, Depth, etc.) optimized for search
 
@@ -18,26 +18,19 @@ pub use score::{Score, SCORE_INFINITY, SCORE_MATE, SCORE_DRAW, SCORE_NONE};
 pub use depth::{Depth, Ply, MAX_DEPTH, MAX_PLY};
 pub use convert::{ToNnue, nnue_color_flip};
 
-// Re-export chess crate types as canonical types
+// Re-export movegen crate types as canonical types
 // This gives us a single source of truth and avoids confusion
-pub use chess::{
+pub use movegen::{
     Board,
-    ChessMove as Move,
+    Move,
     Square,
     Piece,
     Color,
-    BitBoard,
-    File,
-    Rank,
+    Bitboard,
     CastleRights,
-    MoveGen,
-    BoardStatus,
-    ALL_SQUARES,
-    EMPTY,
+    MoveList,
+    MoveFlag,
 };
-
-/// Type alias for move list (stack-allocated for speed)
-pub type MoveList = chess::MoveGen;
 
 /// Zobrist hash type (used for transposition table)
 pub type Hash = u64;

@@ -1,12 +1,12 @@
-//! Conversion traits between `chess` crate and `nnue` crate types.
+//! Conversion traits between `movegen` crate and `nnue` crate types.
 //!
-//! The `chess` crate and `nnue` crate have their own Square, Piece, and Color types.
+//! The `movegen` crate and `nnue` crate have their own Square, Piece, and Color types.
 //! This module provides zero-cost conversions between them.
 
-use chess::{Square as ChessSquare, Piece as ChessPiece, Color as ChessColor};
+use movegen::{Square as MovegenSquare, Piece as MovegenPiece, Color as MovegenColor};
 use nnue::{Square as NnueSquare, Piece as NnuePiece, Color as NnueColor};
 
-/// Trait for converting chess crate types to nnue crate types.
+/// Trait for converting movegen crate types to nnue crate types.
 ///
 /// Implementations are `#[inline]` for zero-cost abstraction.
 pub trait ToNnue {
@@ -14,41 +14,41 @@ pub trait ToNnue {
     fn to_nnue(self) -> Self::Output;
 }
 
-impl ToNnue for ChessSquare {
+impl ToNnue for MovegenSquare {
     type Output = NnueSquare;
 
     #[inline]
     fn to_nnue(self) -> NnueSquare {
         // Both crates use A1=0, H8=63 ordering
-        NnueSquare::from_index(self.to_index())
+        NnueSquare::from_index(self.index() as usize)
     }
 }
 
-impl ToNnue for ChessPiece {
+impl ToNnue for MovegenPiece {
     type Output = NnuePiece;
 
     #[inline]
     fn to_nnue(self) -> NnuePiece {
         // Piece ordering: Pawn, Knight, Bishop, Rook, Queen, King
         match self {
-            ChessPiece::Pawn => NnuePiece::Pawn,
-            ChessPiece::Knight => NnuePiece::Knight,
-            ChessPiece::Bishop => NnuePiece::Bishop,
-            ChessPiece::Rook => NnuePiece::Rook,
-            ChessPiece::Queen => NnuePiece::Queen,
-            ChessPiece::King => NnuePiece::King,
+            MovegenPiece::Pawn => NnuePiece::Pawn,
+            MovegenPiece::Knight => NnuePiece::Knight,
+            MovegenPiece::Bishop => NnuePiece::Bishop,
+            MovegenPiece::Rook => NnuePiece::Rook,
+            MovegenPiece::Queen => NnuePiece::Queen,
+            MovegenPiece::King => NnuePiece::King,
         }
     }
 }
 
-impl ToNnue for ChessColor {
+impl ToNnue for MovegenColor {
     type Output = NnueColor;
 
     #[inline]
     fn to_nnue(self) -> NnueColor {
         match self {
-            ChessColor::White => NnueColor::White,
-            ChessColor::Black => NnueColor::Black,
+            MovegenColor::White => NnueColor::White,
+            MovegenColor::Black => NnueColor::Black,
         }
     }
 }
@@ -70,20 +70,20 @@ mod tests {
     #[test]
     fn test_square_conversion() {
         // Test a few key squares
-        assert_eq!(ChessSquare::A1.to_nnue(), NnueSquare::A1);
-        assert_eq!(ChessSquare::E4.to_nnue(), NnueSquare::E4);
-        assert_eq!(ChessSquare::H8.to_nnue(), NnueSquare::H8);
+        assert_eq!(MovegenSquare::A1.to_nnue(), NnueSquare::A1);
+        assert_eq!(MovegenSquare::E4.to_nnue(), NnueSquare::E4);
+        assert_eq!(MovegenSquare::H8.to_nnue(), NnueSquare::H8);
     }
 
     #[test]
     fn test_piece_conversion() {
-        assert_eq!(ChessPiece::Pawn.to_nnue(), NnuePiece::Pawn);
-        assert_eq!(ChessPiece::King.to_nnue(), NnuePiece::King);
+        assert_eq!(MovegenPiece::Pawn.to_nnue(), NnuePiece::Pawn);
+        assert_eq!(MovegenPiece::King.to_nnue(), NnuePiece::King);
     }
 
     #[test]
     fn test_color_conversion() {
-        assert_eq!(ChessColor::White.to_nnue(), NnueColor::White);
-        assert_eq!(ChessColor::Black.to_nnue(), NnueColor::Black);
+        assert_eq!(MovegenColor::White.to_nnue(), NnueColor::White);
+        assert_eq!(MovegenColor::Black.to_nnue(), NnueColor::Black);
     }
 }

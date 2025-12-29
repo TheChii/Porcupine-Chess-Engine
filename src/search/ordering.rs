@@ -3,10 +3,9 @@
 //! Good move ordering is critical for alpha-beta pruning efficiency.
 //! Uses lazy selection sort to avoid full sort overhead.
 
-use crate::types::{Board, Move, piece_value};
+use crate::types::{Board, Move, Piece, Color, piece_value};
 use super::history::HistoryTable;
 use super::see;
-use chess::Color;
 
 /// Move score constants
 const TT_MOVE_BONUS: i32 = 1_000_000;
@@ -20,8 +19,8 @@ const BAD_CAPTURE_PENALTY: i32 = -10_000;
 /// MVV-LVA scores for capture ordering
 #[inline]
 fn mvv_lva_score(board: &Board, m: Move) -> i32 {
-    let victim = board.piece_on(m.get_dest());
-    let attacker = board.piece_on(m.get_source());
+    let victim = board.piece_at(m.to()).map(|(p, _)| p);
+    let attacker = board.piece_at(m.from()).map(|(p, _)| p);
 
     match (victim, attacker) {
         (Some(v), Some(a)) => {
@@ -50,12 +49,12 @@ pub fn score_move(
     let mut score = 0;
 
     // Promotions are very important
-    if let Some(promo) = m.get_promotion() {
+    if let Some(promo) = m.flag().promotion_piece() {
         score += piece_value(promo) + PROMOTION_BONUS;
     }
 
     // Captures scored by SEE
-    if board.piece_on(m.get_dest()).is_some() {
+    if m.is_capture() {
         let see_value = see::see(board, m);
         if see_value >= 0 {
             // Good capture: use MVV-LVA within the bonus

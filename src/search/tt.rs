@@ -8,7 +8,8 @@
 //! - Depth-preferred replacement with age-based eviction
 //! - Lock-free for Lazy SMP multi-threading support
 
-use crate::types::{Move, Score, Depth, Hash};
+use crate::types::{Move, Score, Depth, Hash, Piece, MoveFlag};
+use movegen::Square;
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 
 /// Type of bound stored in TT entry
@@ -143,21 +144,11 @@ impl TTEntry {
     }
 }
 
-/// Encode a move into 16 bits: from (6) + to (6) + promo (4)
+/// Encode a move into 16 bits
+/// We can just use the Move's internal bits directly since movegen::Move is already 16 bits
 fn encode_move(m: Option<Move>) -> u16 {
     match m {
-        Some(mv) => {
-            let from = mv.get_source().to_index() as u16;
-            let to = mv.get_dest().to_index() as u16;
-            let promo = match mv.get_promotion() {
-                Some(chess::Piece::Knight) => 1,
-                Some(chess::Piece::Bishop) => 2,
-                Some(chess::Piece::Rook) => 3,
-                Some(chess::Piece::Queen) => 4,
-                _ => 0,
-            };
-            (from) | (to << 6) | (promo << 12)
-        }
+        Some(mv) => mv.bits(),
         None => 0,
     }
 }
@@ -167,25 +158,7 @@ fn decode_move(encoded: u16) -> Option<Move> {
     if encoded == 0 {
         return None;
     }
-
-    let from_idx = (encoded & 0x3F) as u8;
-    let to_idx = ((encoded >> 6) & 0x3F) as u8;
-    let promo_bits = (encoded >> 12) & 0x0F;
-
-    // Square::new is unsafe because it doesn't validate the index
-    // We know our indices are valid (0-63) from the encoding
-    let from = unsafe { chess::Square::new(from_idx) };
-    let to = unsafe { chess::Square::new(to_idx) };
-
-    let promo = match promo_bits {
-        1 => Some(chess::Piece::Knight),
-        2 => Some(chess::Piece::Bishop),
-        3 => Some(chess::Piece::Rook),
-        4 => Some(chess::Piece::Queen),
-        _ => None,
-    };
-
-    Some(Move::new(from, to, promo))
+    Some(Move::from_bits(encoded))
 }
 
 /// Lock-free Transposition Table using AtomicU64
@@ -367,14 +340,14 @@ mod tests {
     #[test]
     fn test_move_encoding() {
         let mv = Move::new(
-            chess::Square::E2,
-            chess::Square::E4,
-            None,
+            Square::E2,
+            Square::E4,
+            MoveFlag::DoublePawnPush,
         );
         let encoded = encode_move(Some(mv));
         let decoded = decode_move(encoded).unwrap();
-        assert_eq!(mv.get_source(), decoded.get_source());
-        assert_eq!(mv.get_dest(), decoded.get_dest());
+        assert_eq!(mv.from(), decoded.from());
+        assert_eq!(mv.to(), decoded.to());
     }
     
     #[test]

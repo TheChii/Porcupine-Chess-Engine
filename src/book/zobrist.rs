@@ -4,7 +4,8 @@
 //! other implementations. This module provides the exact random numbers and
 //! hash calculation required for compatibility with Polyglot opening books.
 
-use chess::{Board, Color, Piece, Square, File, Rank};
+use crate::types::{Board, Color, Piece};
+use movegen::{Square, File, Rank};
 
 /// Polyglot random numbers for Zobrist hashing.
 /// These are the exact values from the Polyglot source code.
@@ -238,42 +239,41 @@ pub fn polyglot_hash(board: &Board) -> u64 {
     let mut hash: u64 = 0;
 
     // Hash pieces
-    for sq in chess::ALL_SQUARES {
-        if let Some(piece) = board.piece_on(sq) {
-            let color = board.color_on(sq).unwrap();
+    for sq_idx in 0u8..64 {
+        let sq = Square::from_index(sq_idx).unwrap();
+        if let Some((piece, color)) = board.piece_at(sq) {
             hash ^= piece_key(piece, color, sq);
         }
     }
 
     // Hash castling rights
-    let rights = board.castle_rights(Color::White);
-    if rights.has_kingside() {
+    let castling = board.castling();
+    if castling.has_kingside(Color::White) {
         hash ^= RANDOM64[768]; // White kingside
     }
-    if rights.has_queenside() {
+    if castling.has_queenside(Color::White) {
         hash ^= RANDOM64[769]; // White queenside
     }
-    let rights = board.castle_rights(Color::Black);
-    if rights.has_kingside() {
+    if castling.has_kingside(Color::Black) {
         hash ^= RANDOM64[770]; // Black kingside
     }
-    if rights.has_queenside() {
+    if castling.has_queenside(Color::Black) {
         hash ^= RANDOM64[771]; // Black queenside
     }
 
     // Hash en passant file (only if there's actually a pawn that can capture)
-    if let Some(ep_sq) = board.en_passant() {
-        let ep_file = ep_sq.get_file();
+    if let Some(ep_sq) = board.ep_square() {
+        let ep_file = ep_sq.file();
         // Check if there's actually a pawn that can capture en passant
         let ep_possible = has_ep_pawn(board, ep_sq);
         if ep_possible {
-            hash ^= RANDOM64[772 + ep_file.to_index()];
+            hash ^= RANDOM64[772 + ep_file.index() as usize];
         }
     }
 
     // Hash side to move (XOR when WHITE is to move - this is how Polyglot works)
     // Note: Polyglot's convention is to XOR this key when it's white's turn
-    if board.side_to_move() == Color::White {
+    if board.turn() == Color::White {
         hash ^= RANDOM64[780];
     }
 
@@ -282,39 +282,39 @@ pub fn polyglot_hash(board: &Board) -> u64 {
 
 /// Check if there's a pawn that can capture en passant
 fn has_ep_pawn(board: &Board, ep_sq: Square) -> bool {
-    let ep_rank = ep_sq.get_rank();
-    let ep_file = ep_sq.get_file();
+    let ep_rank = ep_sq.rank();
+    let ep_file = ep_sq.file();
     
     // Determine the rank where capturing pawns would be
-    let pawn_rank = if ep_rank == Rank::Sixth {
-        Rank::Fifth // White pawn capturing black pawn
+    let pawn_rank = if ep_rank == Rank::R6 {
+        Rank::R5 // White pawn capturing black pawn
     } else {
-        Rank::Fourth // Black pawn capturing white pawn
+        Rank::R4 // Black pawn capturing white pawn
     };
     
-    let pawn_color = if ep_rank == Rank::Sixth {
+    let pawn_color = if ep_rank == Rank::R6 {
         Color::White
     } else {
         Color::Black
     };
     
     // Check adjacent files for pawns
-    let file_idx = ep_file.to_index();
+    let file_idx = ep_file.index();
     let mut has_pawn = false;
     
     if file_idx > 0 {
-        let check_sq = Square::make_square(pawn_rank, File::from_index(file_idx - 1));
-        if let Some(piece) = board.piece_on(check_sq) {
-            if piece == Piece::Pawn && board.color_on(check_sq) == Some(pawn_color) {
+        let check_sq = Square::from_file_rank(File::from_index(file_idx - 1).unwrap(), pawn_rank);
+        if let Some((piece, color)) = board.piece_at(check_sq) {
+            if piece == Piece::Pawn && color == pawn_color {
                 has_pawn = true;
             }
         }
     }
     
     if file_idx < 7 && !has_pawn {
-        let check_sq = Square::make_square(pawn_rank, File::from_index(file_idx + 1));
-        if let Some(piece) = board.piece_on(check_sq) {
-            if piece == Piece::Pawn && board.color_on(check_sq) == Some(pawn_color) {
+        let check_sq = Square::from_file_rank(File::from_index(file_idx + 1).unwrap(), pawn_rank);
+        if let Some((piece, color)) = board.piece_at(check_sq) {
+            if piece == Piece::Pawn && color == pawn_color {
                 has_pawn = true;
             }
         }
@@ -337,23 +337,19 @@ fn piece_key(piece: Piece, color: Color, sq: Square) -> u64 {
     };
     
     // Color offset: black=0, white=64
-    let color_offset = match color {
-        Color::Black => 0,
-        Color::White => 64,
-    };
+    let color_offset = if color == Color::Black { 0 } else { 64 };
     
-    let sq_index = sq.to_index();
+    let sq_index = sq.index() as usize;
     RANDOM64[piece_offset + color_offset + sq_index]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
 
     #[test]
     fn test_startpos_hash() {
-        let board = Board::default();
+        let board = Board::startpos();
         let hash = polyglot_hash(&board);
         // Expected Polyglot hash for starting position
         assert_eq!(hash, 0x463b96181691fc9c);
@@ -361,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_after_e4() {
-        let board = Board::from_str("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1").unwrap();
+        let board = Board::from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1").unwrap();
         let hash = polyglot_hash(&board);
         // Expected Polyglot hash after 1.e4
         assert_eq!(hash, 0x823c9b50fd114196);

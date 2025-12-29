@@ -3,8 +3,7 @@
 //! Tracks which quiet moves cause beta cutoffs and uses
 //! accumulated scores to order moves better in future searches.
 
-use crate::types::Move;
-use chess::Color;
+use crate::types::{Move, Color};
 
 /// History table: [color][from_sq][to_sq] -> score
 #[derive(Clone)]
@@ -23,9 +22,9 @@ impl HistoryTable {
     /// Get history score for a move
     #[inline]
     pub fn get(&self, color: Color, mv: Move) -> i32 {
-        let c = color as usize;
-        let from = mv.get_source().to_index();
-        let to = mv.get_dest().to_index();
+        let c = color.index();
+        let from = mv.from().index() as usize;
+        let to = mv.to().index() as usize;
         self.table[c][from][to]
     }
 
@@ -33,9 +32,9 @@ impl HistoryTable {
     /// Bonus is typically depth * depth
     #[inline]
     pub fn update(&mut self, color: Color, mv: Move, bonus: i32) {
-        let c = color as usize;
-        let from = mv.get_source().to_index();
-        let to = mv.get_dest().to_index();
+        let c = color.index();
+        let from = mv.from().index() as usize;
+        let to = mv.to().index() as usize;
         
         // Gravity formula: prevents scores from growing unbounded
         // new_score = old_score + bonus - (old_score * |bonus| / max)

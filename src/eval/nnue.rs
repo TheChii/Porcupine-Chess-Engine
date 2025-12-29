@@ -2,12 +2,13 @@
 //!
 //! Uses forked nnue-rs with exposed state for efficient incremental updates.
 
-use crate::types::{Board, Score, ToNnue, Move};
+use crate::types::{Board, Score, ToNnue, Move, Piece, Color, MoveFlag};
 use nnue::stockfish::halfkp::{SfHalfKpFullModel, SfHalfKpModel, SfHalfKpState};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use binread::BinRead;
+use movegen::Square;
 
 /// Global type for shared thread-safe model
 pub type Model = Arc<SfHalfKpFullModel>;
@@ -24,16 +25,16 @@ pub fn load_model(path: &str) -> std::io::Result<Model> {
 
 /// Create a fresh NNUE state from a board position
 pub fn create_state<'m>(model: &'m SfHalfKpModel, board: &Board) -> SfHalfKpState<'m> {
-    let white_king = board.king_square(chess::Color::White).to_nnue();
-    let black_king = board.king_square(chess::Color::Black).to_nnue();
+    let white_king = board.king_square(Color::White).to_nnue();
+    let black_king = board.king_square(Color::Black).to_nnue();
     
     let mut state = model.new_state(white_king, black_king);
 
     // Add all non-king pieces using bitboard iteration
-    for &piece in &[chess::Piece::Pawn, chess::Piece::Knight, chess::Piece::Bishop, 
-                    chess::Piece::Rook, chess::Piece::Queen] {
-        for &color in &[chess::Color::White, chess::Color::Black] {
-            let bb = board.pieces(piece) & board.color_combined(color);
+    for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, 
+                    Piece::Rook, Piece::Queen] {
+        for &color in &[Color::White, Color::Black] {
+            let bb = board.piece_bb(piece) & board.color_bb(color);
             let nnue_piece = piece.to_nnue();
             let nnue_color = color.to_nnue();
             
@@ -50,7 +51,7 @@ pub fn create_state<'m>(model: &'m SfHalfKpModel, board: &Board) -> SfHalfKpStat
 
 /// Evaluate using a pre-built state (fast - just runs network)
 #[inline]
-pub fn evaluate_state(state: &mut SfHalfKpState<'_>, side_to_move: chess::Color) -> Score {
+pub fn evaluate_state(state: &mut SfHalfKpState<'_>, side_to_move: Color) -> Score {
     let output = state.activate(side_to_move.to_nnue());
     let cp = nnue::stockfish::halfkp::scale_nn_to_centipawns(output[0]);
     Score::cp(cp)
@@ -60,17 +61,17 @@ pub fn evaluate_state(state: &mut SfHalfKpState<'_>, side_to_move: chess::Color)
 #[inline]
 pub fn evaluate_scratch(model: &SfHalfKpModel, board: &Board) -> Score {
     let mut state = create_state(model, board);
-    evaluate_state(&mut state, board.side_to_move())
+    evaluate_state(&mut state, board.turn())
 }
 
 /// Helper: add all non-king pieces to one side of the accumulator
 #[inline]
 fn refresh_side_accumulator(state: &mut SfHalfKpState<'_>, board: &Board, perspective: nnue::Color) {
     // Add all non-king pieces for this perspective
-    for &piece in &[chess::Piece::Pawn, chess::Piece::Knight, chess::Piece::Bishop, 
-                    chess::Piece::Rook, chess::Piece::Queen] {
-        for &color in &[chess::Color::White, chess::Color::Black] {
-            let bb = board.pieces(piece) & board.color_combined(color);
+    for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, 
+                    Piece::Rook, Piece::Queen] {
+        for &color in &[Color::White, Color::Black] {
+            let bb = board.piece_bb(piece) & board.color_bb(color);
             let nnue_piece = piece.to_nnue();
             let nnue_color = color.to_nnue();
             
@@ -90,14 +91,13 @@ pub fn update_state_for_move(
     board: &Board,  // Position BEFORE the move
     mv: Move,
 ) -> bool {
-    let from = mv.get_source();
-    let to = mv.get_dest();
-    let moving_piece = match board.piece_on(from) {
-        Some(p) => p,
+    let from = mv.from();
+    let to = mv.to();
+    let (moving_piece, moving_color) = match board.piece_at(from) {
+        Some((p, c)) => (p, c),
         None => return false,
     };
-    let moving_color = board.side_to_move();
-    let captured = board.piece_on(to);
+    let captured = board.piece_at(to).map(|(p, _)| p);
 
     // === King Move Handling (Optimized) ===
     // In HalfKP, the King is NOT a feature - only non-king pieces are features.
@@ -105,7 +105,7 @@ pub fn update_state_for_move(
     // Therefore:
     // - Passive side: NO UPDATE needed (enemy king is not a feature)
     // - Active side: Full refresh (all feature indices change with king position)
-    if moving_piece == chess::Piece::King {
+    if moving_piece == Piece::King {
         let active = moving_color.to_nnue();
         let passive = (!moving_color).to_nnue();
         let to_sq = to.to_nnue();
@@ -113,7 +113,7 @@ pub fn update_state_for_move(
         // Handle capture for passive side BEFORE updating king
         // (captured piece IS a feature that needs to be removed)
         if let Some(captured_piece) = captured {
-            if captured_piece != chess::Piece::King {
+            if captured_piece != Piece::King {
                 let cap_nnue = captured_piece.to_nnue();
                 let cap_color = (!moving_color).to_nnue();
                 let cap_sq = to.to_nnue();
@@ -131,25 +131,25 @@ pub fn update_state_for_move(
         refresh_side_accumulator(state, &new_board, active);
         
         // Handle castling: rook also moves (rook IS a feature)
-        let is_castling = (from.get_file() == chess::File::E) 
-            && (to.get_file() == chess::File::G || to.get_file() == chess::File::C);
+        let mv_flag = mv.flag();
+        let is_castling = mv_flag == MoveFlag::KingCastle || mv_flag == MoveFlag::QueenCastle;
         
         if is_castling {
             // Determine rook squares based on castling type
             let nnue_rook_color = moving_color.to_nnue();
-            let (rook_from, rook_to) = if to.get_file() == chess::File::G {
+            let (rook_from, rook_to) = if mv_flag == MoveFlag::KingCastle {
                 // King-side castling
-                let rank = from.get_rank();
+                let rank = from.rank();
                 (
-                    chess::Square::make_square(rank, chess::File::H),
-                    chess::Square::make_square(rank, chess::File::F)
+                    Square::from_file_rank(movegen::File::H, rank),
+                    Square::from_file_rank(movegen::File::F, rank)
                 )
             } else {
                 // Queen-side castling
-                let rank = from.get_rank();
+                let rank = from.rank();
                 (
-                    chess::Square::make_square(rank, chess::File::A),
-                    chess::Square::make_square(rank, chess::File::D)
+                    Square::from_file_rank(movegen::File::A, rank),
+                    Square::from_file_rank(movegen::File::D, rank)
                 )
             };
             
@@ -176,7 +176,7 @@ pub fn update_state_for_move(
 
     // Handle capture
     if let Some(captured_piece) = captured {
-        if captured_piece != chess::Piece::King {
+        if captured_piece != Piece::King {
             let cap_nnue = captured_piece.to_nnue();
             let cap_color = (!moving_color).to_nnue();
             state.sub(nnue::Color::White, cap_nnue, cap_color, to_sq);
@@ -185,12 +185,12 @@ pub fn update_state_for_move(
     }
 
     // Handle en passant capture
-    if moving_piece == chess::Piece::Pawn && board.en_passant() == Some(to) {
+    if moving_piece == Piece::Pawn && mv.flag() == MoveFlag::EnPassant {
         // Remove en passant captured pawn
-        let ep_sq = if moving_color == chess::Color::White {
-            chess::Square::make_square(chess::Rank::Fifth, to.get_file()).to_nnue()
+        let ep_sq = if moving_color == Color::White {
+            Square::from_file_rank(to.file(), movegen::Rank::R5).to_nnue()
         } else {
-            chess::Square::make_square(chess::Rank::Fourth, to.get_file()).to_nnue()
+            Square::from_file_rank(to.file(), movegen::Rank::R4).to_nnue()
         };
         let cap_color = (!moving_color).to_nnue();
         state.sub(nnue::Color::White, nnue::Piece::Pawn, cap_color, ep_sq);
@@ -198,7 +198,7 @@ pub fn update_state_for_move(
     }
 
     // Handle promotion
-    let final_piece = if let Some(promo) = mv.get_promotion() {
+    let final_piece = if let Some(promo) = mv.flag().promotion_piece() {
         promo.to_nnue()
     } else {
         nnue_piece
@@ -236,7 +236,7 @@ impl<'m> NnueEvaluator<'m> {
 
     /// Evaluate current position
     #[inline]
-    pub fn evaluate(&mut self, side_to_move: chess::Color) -> Score {
+    pub fn evaluate(&mut self, side_to_move: Color) -> Score {
         evaluate_state(&mut self.state, side_to_move)
     }
 

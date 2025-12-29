@@ -8,8 +8,8 @@
 //!
 //! Automatically activates when there are very few pieces on the board.
 
-use crate::types::{Board, Score, Color, Piece};
-use chess::{Square, Rank, File, BitBoard, EMPTY};
+use crate::types::{Board, Score, Color, Piece, Bitboard};
+use movegen::Square;
 
 /// Feature toggle - set to false to disable endgame eval
 pub const USE_ENDGAME_EVAL: bool = true;
@@ -29,12 +29,12 @@ pub fn should_use_endgame(board: &Board) -> bool {
         return false;
     }
     
-    let non_pawn_king = board.pieces(Piece::Knight) 
-        | board.pieces(Piece::Bishop) 
-        | board.pieces(Piece::Rook) 
-        | board.pieces(Piece::Queen);
+    let non_pawn_king = board.piece_bb(Piece::Knight) 
+        | board.piece_bb(Piece::Bishop) 
+        | board.piece_bb(Piece::Rook) 
+        | board.piece_bb(Piece::Queen);
     
-    let piece_count = non_pawn_king.popcnt();
+    let piece_count = non_pawn_king.count();
     
     // Always use in very sparse positions
     if piece_count <= 3 {
@@ -56,8 +56,8 @@ pub fn should_use_endgame(board: &Board) -> bool {
 /// Distance from square to nearest corner (0-3, lower is more cornered)
 #[inline]
 fn corner_distance(sq: Square) -> i32 {
-    let file = sq.get_file().to_index() as i32;
-    let rank = sq.get_rank().to_index() as i32;
+    let file = sq.file().index() as i32;
+    let rank = sq.rank().index() as i32;
     
     // Distance to nearest edge file (A or H)
     let file_dist = file.min(7 - file);
@@ -71,8 +71,8 @@ fn corner_distance(sq: Square) -> i32 {
 /// Distance from square to center (0 = center, higher = edge)
 #[inline]
 fn center_distance(sq: Square) -> i32 {
-    let file = sq.get_file().to_index() as i32;
-    let rank = sq.get_rank().to_index() as i32;
+    let file = sq.file().index() as i32;
+    let rank = sq.rank().index() as i32;
     
     // Distance from center files (d/e = 3/4)
     let file_dist = (file - 3).abs().min((file - 4).abs());
@@ -85,10 +85,10 @@ fn center_distance(sq: Square) -> i32 {
 /// Chebyshev distance between two squares (king moves to reach)
 #[inline]
 fn king_distance(sq1: Square, sq2: Square) -> i32 {
-    let file1 = sq1.get_file().to_index() as i32;
-    let rank1 = sq1.get_rank().to_index() as i32;
-    let file2 = sq2.get_file().to_index() as i32;
-    let rank2 = sq2.get_rank().to_index() as i32;
+    let file1 = sq1.file().index() as i32;
+    let rank1 = sq1.rank().index() as i32;
+    let file2 = sq2.file().index() as i32;
+    let rank2 = sq2.rank().index() as i32;
     
     (file1 - file2).abs().max((rank1 - rank2).abs())
 }
@@ -106,8 +106,8 @@ fn material_balance(board: &Board) -> i32 {
     ];
     
     for (piece, value) in PIECE_VALUES {
-        let white = (board.pieces(piece) & board.color_combined(Color::White)).popcnt() as i32;
-        let black = (board.pieces(piece) & board.color_combined(Color::Black)).popcnt() as i32;
+        let white = (board.piece_bb(piece) & board.color_bb(Color::White)).count() as i32;
+        let black = (board.piece_bb(piece) & board.color_bb(Color::Black)).count() as i32;
         score += value * (white - black);
     }
     
@@ -116,18 +116,18 @@ fn material_balance(board: &Board) -> i32 {
 
 /// Count passed pawns for a color and their advancement
 fn passed_pawn_bonus(board: &Board, color: Color) -> i32 {
-    let pawns = board.pieces(Piece::Pawn) & board.color_combined(color);
-    let enemy_pawns = board.pieces(Piece::Pawn) & board.color_combined(!color);
+    let pawns = board.piece_bb(Piece::Pawn) & board.color_bb(color);
+    let enemy_pawns = board.piece_bb(Piece::Pawn) & board.color_bb(!color);
     
     let mut bonus = 0;
     
     for sq in pawns {
-        let file = sq.get_file();
-        let rank = sq.get_rank();
+        let file = sq.file();
+        let rank = sq.rank();
         
         // Check if pawn is passed (no enemy pawns blocking or attacking)
-        let file_idx = file.to_index();
-        let rank_idx = rank.to_index();
+        let file_idx = file.index();
+        let rank_idx = rank.index();
         
         // Build mask for blocking squares
         let mut blocking_mask = 0u64;
@@ -151,9 +151,9 @@ fn passed_pawn_bonus(board: &Board, color: Color) -> i32 {
             }
         }
         
-        let blocking = BitBoard::new(blocking_mask);
+        let blocking = Bitboard::new(blocking_mask);
         
-        if (enemy_pawns & blocking) == EMPTY {
+        if (enemy_pawns & blocking).is_empty() {
             // It's a passed pawn! Bonus based on advancement
             let advancement = if color == Color::White {
                 rank_idx as i32
@@ -249,13 +249,13 @@ pub fn evaluate(board: &Board) -> Score {
     // === ANTI-DRAW BIAS ===
     // Add a small random-ish component based on position to avoid repetition
     // This makes the engine prefer variety in drawn-ish positions
-    let hash_component = (board.get_hash() % 11) as i32 - 5; // -5 to +5
+    let hash_component = (board.hash() % 11) as i32 - 5; // -5 to +5
     if material.abs() > 100 {
         score += hash_component;
     }
     
     // Return from side-to-move perspective
-    if board.side_to_move() == Color::White {
+    if board.turn() == Color::White {
         Score::cp(score)
     } else {
         Score::cp(-score)
@@ -265,7 +265,6 @@ pub fn evaluate(board: &Board) -> Score {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     
     #[test]
     fn test_corner_distance() {
@@ -286,7 +285,7 @@ mod tests {
     #[test]
     fn test_krk_endgame() {
         // KRK endgame - white should win
-        let board = Board::from_str("8/8/8/4k3/8/8/4K3/4R3 w - - 0 1").unwrap();
+        let board = Board::from_fen("8/8/8/4k3/8/8/4K3/4R3 w - - 0 1").unwrap();
         assert!(should_use_endgame(&board));
         
         let score = evaluate(&board);
@@ -297,8 +296,8 @@ mod tests {
     #[test]
     fn test_king_in_corner_bonus() {
         // Enemy king in corner should give bonus
-        let board1 = Board::from_str("k7/8/8/8/8/8/4K3/4R3 w - - 0 1").unwrap();
-        let board2 = Board::from_str("4k3/8/8/8/8/8/4K3/4R3 w - - 0 1").unwrap();
+        let board1 = Board::from_fen("k7/8/8/8/8/8/4K3/4R3 w - - 0 1").unwrap();
+        let board2 = Board::from_fen("4k3/8/8/8/8/8/4K3/4R3 w - - 0 1").unwrap();
         
         let score1 = evaluate(&board1); // King in corner
         let score2 = evaluate(&board2); // King in center

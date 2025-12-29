@@ -7,7 +7,6 @@ use crate::search::{Searcher, SearchLimits};
 use crate::eval::nnue;
 use crate::book::PolyglotBook;
 use std::io::{self, BufRead, Write};
-use std::str::FromStr;
 
 /// UCI protocol handler
 pub struct UciHandler {
@@ -250,19 +249,19 @@ impl UciHandler {
     fn cmd_position(&mut self, fen: Option<&str>, moves: &[String]) {
         // Set up the position
         self.board = match fen {
-            Some(f) => Board::from_str(f).unwrap_or_default(),
+            Some(f) => Board::from_fen(f).unwrap_or_default(),
             None => Board::default(),
         };
 
         // Track position hashes for repetition detection
         let mut history: Vec<u64> = Vec::with_capacity(moves.len() + 1);
-        history.push(self.board.get_hash());
+        history.push(self.board.hash());
 
         // Apply moves
         for move_str in moves {
             if let Some(m) = parse_move(&self.board, move_str) {
                 self.board = self.board.make_move_new(m);
-                history.push(self.board.get_hash());
+                history.push(self.board.hash());
             } else if self.debug {
                 eprintln!("Invalid move: {}", move_str);
             }
@@ -331,9 +330,9 @@ impl UciHandler {
 
     fn cmd_display(&self) {
         // Non-standard debug command to display the board
-        eprintln!("{}", self.board);
-        eprintln!("FEN: {}", self.board);
-        eprintln!("Side to move: {:?}", self.board.side_to_move());
+        eprintln!("{:?}", self.board);
+        eprintln!("FEN: {}", self.board.to_fen());
+        eprintln!("Side to move: {:?}", self.board.turn());
     }
 }
 

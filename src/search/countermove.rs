@@ -23,16 +23,16 @@ impl CounterMoveTable {
     /// Store a counter-move for the opponent's previous move
     #[inline]
     pub fn store(&mut self, opponent_move: Move, counter: Move) {
-        let from = opponent_move.get_source().to_index();
-        let to = opponent_move.get_dest().to_index();
+        let from = opponent_move.from().index() as usize;
+        let to = opponent_move.to().index() as usize;
         self.table[from][to] = Some(counter);
     }
 
     /// Get the counter-move for the opponent's previous move
     #[inline]
     pub fn get(&self, opponent_move: Move) -> Option<Move> {
-        let from = opponent_move.get_source().to_index();
-        let to = opponent_move.get_dest().to_index();
+        let from = opponent_move.from().index() as usize;
+        let to = opponent_move.to().index() as usize;
         self.table[from][to]
     }
 

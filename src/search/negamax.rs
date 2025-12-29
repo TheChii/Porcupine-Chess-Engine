@@ -9,9 +9,8 @@
 
 use super::{Searcher, SearchStats, ordering, qsearch};
 use super::tt::BoundType;
-use crate::types::{Board, Move, Score, Depth, Ply, MoveGen, SCORE_MATE};
+use crate::types::{Board, Move, Score, Depth, Ply, Piece, SCORE_MATE};
 use crate::eval::SearchEvaluator;
-use arrayvec::ArrayVec;
 use std::time::Instant;
 
 /// Result from a search
@@ -38,7 +37,7 @@ pub fn search(
     searcher.inc_nodes();
     searcher.update_seldepth(ply);
 
-    let hash = board.get_hash();
+    let hash = board.hash();
 
     // === Repetition Detection with Contempt ===
     // Check for draw by repetition (position seen before in game history)
@@ -154,7 +153,7 @@ pub fn search(
         };
     }
 
-    let in_check = *board.checkers() != chess::EMPTY;
+    let in_check = board.in_check();
 
     // === ProbCut ===
     const PROBCUT_MARGIN: i32 = 200;
@@ -188,42 +187,43 @@ pub fn search(
     // Skip if: in check, depth too low, null move disabled, or only king+pawns
     if allow_null && !in_check && depth.raw() >= 3 {
         // Don't do null move in pure pawn endgames (zugzwang risk)
-        let dominated_by_pawns = (board.pieces(chess::Piece::Knight)
-            | board.pieces(chess::Piece::Bishop)
-            | board.pieces(chess::Piece::Rook)
-            | board.pieces(chess::Piece::Queen)).popcnt() == 0;
+        let dominated_by_pawns = (board.piece_bb(Piece::Knight)
+            | board.piece_bb(Piece::Bishop)
+            | board.piece_bb(Piece::Rook)
+            | board.piece_bb(Piece::Queen)).is_empty();
         
         if !dominated_by_pawns {
             // Reduction: R=3 if depth > 6, else R=2
             let r = if depth.raw() > 6 { 3 } else { 2 };
             
-            if let Some(null_board) = board.null_move() {
-                // Clone evaluator for null move (no piece updates needed)
-                let mut null_evaluator = evaluator.clone();
-                
-                let null_result = search(
-                    searcher,
-                    &mut null_evaluator,
-                    &null_board,
-                    Depth::new((depth.raw() - 1 - r).max(0)),
-                    ply.next(),
-                    -beta,
-                    -beta + Score::cp(1),
-                    false,
-                    None,  // No prev move for null move
-                );
-                
-                let null_score = -null_result.score;
-                
-                if null_score >= beta {
-                    // Null move cutoff
-                    return SearchResult {
-                        best_move: None,
-                        score: beta,
-                        pv: Vec::new(),
-                        stats: searcher.stats().clone(),
-                    };
-                }
+            // Create a null move board (pass the turn)
+            let null_board = board.make_null_move();
+            
+            // Clone evaluator for null move (no piece updates needed)
+            let mut null_evaluator = evaluator.clone();
+            
+            let null_result = search(
+                searcher,
+                &mut null_evaluator,
+                &null_board,
+                Depth::new((depth.raw() - 1 - r).max(0)),
+                ply.next(),
+                -beta,
+                -beta + Score::cp(1),
+                false,
+                None,  // No prev move for null move
+            );
+            
+            let null_score = -null_result.score;
+            
+            if null_score >= beta {
+                // Null move cutoff
+                return SearchResult {
+                    best_move: None,
+                    score: beta,
+                    pv: Vec::new(),
+                    stats: searcher.stats().clone(),
+                };
             }
         }
     }
@@ -250,12 +250,12 @@ pub fn search(
 
     // Generate legal moves
     let t_gen = Instant::now();
-    let mut moves: ArrayVec<Move, 256> = MoveGen::new_legal(board).into_iter().collect();
+    let moves = board.generate_moves();
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
     // Check for checkmate or stalemate
     if moves.is_empty() {
-        let score = if *board.checkers() != chess::EMPTY {
+        let score = if board.in_check() {
             Score::mated_in(ply.raw())
         } else {
             Score::draw()
@@ -275,14 +275,17 @@ pub fn search(
 
     // Get killers for this ply
     let killers = searcher.killers.get(ply);
-    let color = board.side_to_move();
+    let color = board.turn();
     
     // Get counter-move for opponent's previous move
     let counter_move = prev_move.and_then(|pm| searcher.countermoves.get(pm));
 
+    // Collect moves into a Vec for ordering
+    let mut move_vec: Vec<Move> = moves.iter().collect();
+    
     // Order moves (TT, killers, counter-move, and history)
     let t_order = Instant::now();
-    ordering::order_moves_full(board, &mut moves, tt_move, killers, counter_move, &searcher.history, color);
+    ordering::order_moves_full(board, &mut move_vec, tt_move, killers, counter_move, &searcher.history, color);
     searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
 
     // Cache static eval for futility pruning (only compute once per node)
@@ -313,21 +316,21 @@ pub fn search(
     let mut best_score = Score::neg_infinity();
     let mut pv = Vec::new();
     // Use fixed-size array for searched quiets to avoid allocations
-    let mut searched_quiets: [Move; 64] = [Move::default(); 64];
+    let mut searched_quiets: [Move; 64] = [Move::NULL; 64];
     let mut quiets_count = 0usize;
 
-    for (move_idx, &m) in moves.iter().enumerate() {
+    for (move_idx, &m) in move_vec.iter().enumerate() {
         let new_board = board.make_move_new(m);
 
         // Prefetch TT entry for next position
-        searcher.shared.tt.prefetch(new_board.get_hash());
+        searcher.shared.tt.prefetch(new_board.hash());
 
         // Determine if this is a quiet move (for LMR)
-        let is_capture = board.piece_on(m.get_dest()).is_some();
-        let is_promotion = m.get_promotion().is_some();
+        let is_capture = m.is_capture();
+        let is_promotion = m.is_promotion();
         let is_killer = killers[0] == Some(m) || killers[1] == Some(m);
         let is_quiet = !is_capture && !is_promotion;
-        let gives_check = new_board.checkers().popcnt() > 0;
+        let gives_check = new_board.in_check();
 
         // LMR: Late Move Reductions
         // Reduce depth for late quiet moves that aren't special
@@ -435,15 +438,6 @@ pub fn search(
 
         // Re-search at full depth if LMR reduced search beats alpha
         if reduced && score > alpha && !searcher.should_stop() {
-            // Need fresh evaluator if we didn't keep the previous one derived from 'm'?
-            // Actually 'm' is consistent for this iteration. 
-            // We can reconstruct child_eval or just do it again.
-            // But wait, the previous block ending at 297 might have been executing "else" branch
-            // where 'child_eval' is defined in scope.
-            // Oh, 'child_eval' scope is inside if/else blocks.
-            // I should define child_eval before if/else for the 'else' case?
-            // Or just recreate it here. Recreating is safer for scope.
-            
             let mut child_eval = evaluator.clone();
             if !child_eval.update_move(board, m) {
                 child_eval.refresh(&new_board);

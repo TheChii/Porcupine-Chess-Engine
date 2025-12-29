@@ -8,8 +8,8 @@
 //! - King safety (midgame) and centralization (endgame)
 //! - Endgame-specific bonuses
 
-use crate::types::{Board, Score};
-use chess::{Color, Piece, Square, BitBoard, Rank, File, EMPTY};
+use crate::types::{Board, Score, Color, Piece, Bitboard};
+use movegen::{Square, Rank, File};
 
 // ============================================================================
 // PIECE VALUES (centipawns)
@@ -145,8 +145,6 @@ const PASSED_PAWN_BONUS: [i32; 8] = [0, 10, 20, 40, 60, 90, 130, 0]; // by rank 
 const ROOK_ON_OPEN_FILE: i32 = 20;
 const ROOK_ON_SEMI_OPEN: i32 = 10;
 const ROOK_ON_7TH: i32 = 30;
-// Reserved for future mobility evaluation
-// const MOBILITY_BONUS: i32 = 3; // per legal move
 
 // ============================================================================
 // GAME PHASE
@@ -164,10 +162,10 @@ fn game_phase(board: &Board) -> i32 {
     
     let mut phase = total_phase;
     
-    phase -= (board.pieces(Piece::Knight).popcnt() as i32) * knight_phase;
-    phase -= (board.pieces(Piece::Bishop).popcnt() as i32) * bishop_phase;
-    phase -= (board.pieces(Piece::Rook).popcnt() as i32) * rook_phase;
-    phase -= (board.pieces(Piece::Queen).popcnt() as i32) * queen_phase;
+    phase -= (board.piece_bb(Piece::Knight).count() as i32) * knight_phase;
+    phase -= (board.piece_bb(Piece::Bishop).count() as i32) * bishop_phase;
+    phase -= (board.piece_bb(Piece::Rook).count() as i32) * rook_phase;
+    phase -= (board.piece_bb(Piece::Queen).count() as i32) * queen_phase;
     
     // Normalize to 0-256 range
     ((phase * 256 + total_phase / 2) / total_phase).max(0).min(256)
@@ -187,7 +185,7 @@ fn taper(mg: i32, eg: i32, phase: i32) -> i32 {
 /// Get PST index for a square from white's perspective
 #[inline]
 fn pst_index(sq: Square, color: Color) -> usize {
-    let idx = sq.to_index();
+    let idx = sq.index() as usize;
     if color == Color::White {
         // Flip for white (rank 1 -> rank 8)
         idx ^ 56
@@ -199,82 +197,80 @@ fn pst_index(sq: Square, color: Color) -> usize {
 /// Get bitboard for a file
 #[inline]
 const fn get_file_bb(file: File) -> u64 {
-    0x0101010101010101u64 << (file as u8)
+    0x0101010101010101u64 << (file.index())
 }
 
 /// Count pawns on a file for a color
 #[inline]
 fn pawns_on_file(board: &Board, color: Color, file: File) -> u32 {
-    let file_bb = BitBoard::new(get_file_bb(file));
-    (board.pieces(Piece::Pawn) & board.color_combined(color) & file_bb).popcnt()
+    let file_bb = Bitboard::new(get_file_bb(file));
+    (board.piece_bb(Piece::Pawn) & board.color_bb(color) & file_bb).count()
 }
 
 /// Check if a file is open (no pawns)
 #[inline]
 fn is_open_file(board: &Board, file: File) -> bool {
-    let file_bb = BitBoard::new(get_file_bb(file));
-    (board.pieces(Piece::Pawn) & file_bb) == EMPTY
+    let file_bb = Bitboard::new(get_file_bb(file));
+    (board.piece_bb(Piece::Pawn) & file_bb).is_empty()
 }
 
 /// Check if a file is semi-open for a color (no friendly pawns)
 #[inline]
 fn is_semi_open_file(board: &Board, color: Color, file: File) -> bool {
-    let file_bb = BitBoard::new(get_file_bb(file));
-    (board.pieces(Piece::Pawn) & board.color_combined(color) & file_bb) == EMPTY
+    let file_bb = Bitboard::new(get_file_bb(file));
+    (board.piece_bb(Piece::Pawn) & board.color_bb(color) & file_bb).is_empty()
 }
 
 /// Check if a pawn is passed
 #[inline]
 fn is_passed_pawn(board: &Board, sq: Square, color: Color) -> bool {
-    let file = sq.get_file();
-    let rank = sq.get_rank();
+    let file = sq.file();
+    let rank = sq.rank();
     let enemy = !color;
     
-    // All files as array for lookup
-    const FILES: [File; 8] = [File::A, File::B, File::C, File::D, File::E, File::F, File::G, File::H];
-    let file_idx = file.to_index();
+    let file_idx = file.index();
+    let rank_idx = rank.index();
     
     // Get adjacent files + same file
     let mut check_mask = 0u64;
     if file_idx > 0 {
-        check_mask |= get_file_bb(FILES[file_idx - 1]);
+        check_mask |= get_file_bb(File::from_index(file_idx - 1).unwrap());
     }
     check_mask |= get_file_bb(file);
     if file_idx < 7 {
-        check_mask |= get_file_bb(FILES[file_idx + 1]);
+        check_mask |= get_file_bb(File::from_index(file_idx + 1).unwrap());
     }
-    let check_files = BitBoard::new(check_mask);
+    let check_files = Bitboard::new(check_mask);
     
     // Get ranks in front of pawn
-    let front_ranks: BitBoard = if color == Color::White {
+    let front_ranks: Bitboard = if color == Color::White {
         // Ranks above this pawn
-        BitBoard::new(!((1u64 << ((rank.to_index() as u8 + 1) * 8)) - 1))
+        Bitboard::new(!((1u64 << ((rank_idx as u8 + 1) * 8)) - 1))
     } else {
         // Ranks below this pawn
-        BitBoard::new((1u64 << (rank.to_index() as u8 * 8)) - 1)
+        Bitboard::new((1u64 << (rank_idx as u8 * 8)) - 1)
     };
     
     let blocking_area = check_files & front_ranks;
-    (board.pieces(Piece::Pawn) & board.color_combined(enemy) & blocking_area) == EMPTY
+    (board.piece_bb(Piece::Pawn) & board.color_bb(enemy) & blocking_area).is_empty()
 }
 
 /// Check if a pawn is isolated (no friendly pawns on adjacent files)
 #[inline]
 fn is_isolated_pawn(board: &Board, sq: Square, color: Color) -> bool {
-    let file = sq.get_file();
-    const FILES: [File; 8] = [File::A, File::B, File::C, File::D, File::E, File::F, File::G, File::H];
-    let file_idx = file.to_index();
+    let file = sq.file();
+    let file_idx = file.index();
     
     let mut adj_mask = 0u64;
     if file_idx > 0 {
-        adj_mask |= get_file_bb(FILES[file_idx - 1]);
+        adj_mask |= get_file_bb(File::from_index(file_idx - 1).unwrap());
     }
     if file_idx < 7 {
-        adj_mask |= get_file_bb(FILES[file_idx + 1]);
+        adj_mask |= get_file_bb(File::from_index(file_idx + 1).unwrap());
     }
-    let adj_files = BitBoard::new(adj_mask);
+    let adj_files = Bitboard::new(adj_mask);
     
-    (board.pieces(Piece::Pawn) & board.color_combined(color) & adj_files) == EMPTY
+    (board.piece_bb(Piece::Pawn) & board.color_bb(color) & adj_files).is_empty()
 }
 
 // ============================================================================
@@ -294,7 +290,7 @@ pub fn evaluate(board: &Board) -> Score {
         // === MATERIAL AND PST ===
         
         // Pawns
-        for sq in board.pieces(Piece::Pawn) & board.color_combined(color) {
+        for sq in board.piece_bb(Piece::Pawn) & board.color_bb(color) {
             mg_score += sign * PAWN_MG;
             eg_score += sign * PAWN_EG;
             let idx = pst_index(sq, color);
@@ -302,7 +298,7 @@ pub fn evaluate(board: &Board) -> Score {
             eg_score += sign * PAWN_PST_EG[idx];
             
             // Pawn structure
-            let file = sq.get_file();
+            let file = sq.file();
             
             // Doubled pawns
             if pawns_on_file(board, color, file) > 1 {
@@ -318,20 +314,20 @@ pub fn evaluate(board: &Board) -> Score {
             
             // Passed pawns
             if is_passed_pawn(board, sq, color) {
-                let rank = sq.get_rank();
+                let rank = sq.rank();
                 let rank_idx = if color == Color::White {
-                    rank as usize
+                    rank.index()
                 } else {
-                    7 - rank as usize
+                    7 - rank.index()
                 };
-                let bonus = PASSED_PAWN_BONUS[rank_idx.min(7)];
+                let bonus = PASSED_PAWN_BONUS[(rank_idx as usize).min(7)];
                 mg_score += sign * bonus / 2; // Half in midgame
                 eg_score += sign * bonus;     // Full in endgame
             }
         }
         
         // Knights
-        for sq in board.pieces(Piece::Knight) & board.color_combined(color) {
+        for sq in board.piece_bb(Piece::Knight) & board.color_bb(color) {
             mg_score += sign * KNIGHT_MG;
             eg_score += sign * KNIGHT_EG;
             let idx = pst_index(sq, color);
@@ -340,7 +336,7 @@ pub fn evaluate(board: &Board) -> Score {
         }
         
         // Bishops
-        let bishops = board.pieces(Piece::Bishop) & board.color_combined(color);
+        let bishops = board.piece_bb(Piece::Bishop) & board.color_bb(color);
         for sq in bishops {
             mg_score += sign * BISHOP_MG;
             eg_score += sign * BISHOP_EG;
@@ -349,21 +345,21 @@ pub fn evaluate(board: &Board) -> Score {
             eg_score += sign * BISHOP_PST_MG[idx];
         }
         // Bishop pair
-        if bishops.popcnt() >= 2 {
+        if bishops.count() >= 2 {
             mg_score += sign * BISHOP_PAIR_BONUS;
             eg_score += sign * BISHOP_PAIR_BONUS;
         }
         
         // Rooks
-        for sq in board.pieces(Piece::Rook) & board.color_combined(color) {
+        for sq in board.piece_bb(Piece::Rook) & board.color_bb(color) {
             mg_score += sign * ROOK_MG;
             eg_score += sign * ROOK_EG;
             let idx = pst_index(sq, color);
             mg_score += sign * ROOK_PST_MG[idx];
             eg_score += sign * ROOK_PST_MG[idx];
             
-            let file = sq.get_file();
-            let rank = sq.get_rank();
+            let file = sq.file();
+            let rank = sq.rank();
             
             // Open/semi-open file bonus
             if is_open_file(board, file) {
@@ -375,7 +371,7 @@ pub fn evaluate(board: &Board) -> Score {
             }
             
             // Rook on 7th rank
-            let seventh = if color == Color::White { Rank::Seventh } else { Rank::Second };
+            let seventh = if color == Color::White { Rank::R7 } else { Rank::R2 };
             if rank == seventh {
                 mg_score += sign * ROOK_ON_7TH;
                 eg_score += sign * ROOK_ON_7TH;
@@ -383,7 +379,7 @@ pub fn evaluate(board: &Board) -> Score {
         }
         
         // Queens
-        for sq in board.pieces(Piece::Queen) & board.color_combined(color) {
+        for sq in board.piece_bb(Piece::Queen) & board.color_bb(color) {
             mg_score += sign * QUEEN_MG;
             eg_score += sign * QUEEN_EG;
             let idx = pst_index(sq, color);
@@ -402,7 +398,7 @@ pub fn evaluate(board: &Board) -> Score {
     let final_score = taper(eg_score, mg_score, phase);
     
     // Return from side-to-move perspective
-    if board.side_to_move() == Color::White {
+    if board.turn() == Color::White {
         Score::cp(final_score)
     } else {
         Score::cp(-final_score)
@@ -412,7 +408,6 @@ pub fn evaluate(board: &Board) -> Score {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     
     #[test]
     fn test_starting_position() {
@@ -425,7 +420,7 @@ mod tests {
     #[test]
     fn test_material_advantage() {
         // White up a queen
-        let board = Board::from_str("rnb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").unwrap();
+        let board = Board::from_fen("rnb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").unwrap();
         let score = evaluate(&board);
         // White should have big advantage
         assert!(score.raw() > 800);

@@ -3,8 +3,7 @@
 //! Uses NNUE if available, otherwise falls back to material.
 //! Automatically switches to endgame evaluation when few pieces remain.
 
-use crate::types::{Board, Score, Color, Piece, piece_value, Value};
-// use crate::uci::UciHandler;
+use crate::types::{Board, Score, Color, Piece, piece_value, Value, Move};
 
 pub mod nnue;
 pub mod hce;
@@ -13,7 +12,6 @@ pub mod endgame;
 // Re-export the evaluator for use in search
 pub use nnue::NnueEvaluator;
 pub use endgame::{USE_ENDGAME_EVAL, should_use_endgame};
-use crate::types::Move;
 
 /// Evaluator wrapper that handles NNUE, HCE, Endgame, or Material evaluation
 #[derive(Clone)]
@@ -41,7 +39,7 @@ impl<'a> SearchEvaluator<'a> {
         }
         
         match self {
-            Self::Nnue(e) => e.evaluate(board.side_to_move()),
+            Self::Nnue(e) => e.evaluate(board.turn()),
             Self::Hce => hce::evaluate(board),
             Self::Endgame => endgame::evaluate(board),
             Self::Material => material_eval_wrapper(board),
@@ -88,7 +86,7 @@ pub fn evaluate(board: &Board, model: Option<&nnue::Model>) -> Score {
 /// Wrapper for material eval that returns Score
 pub fn material_eval_wrapper(board: &Board) -> Score {
     let eval = material_eval(board);
-    if board.side_to_move() == Color::White {
+    if board.turn() == Color::White {
         Score::cp(eval)
     } else {
         Score::cp(-eval)
@@ -100,11 +98,11 @@ fn material_eval(board: &Board) -> Value {
     let mut score: Value = 0;
 
     for piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen] {
-        let white_pieces = board.pieces(*piece) & board.color_combined(Color::White);
-        let black_pieces = board.pieces(*piece) & board.color_combined(Color::Black);
+        let white_pieces = board.piece_bb(*piece) & board.color_bb(Color::White);
+        let black_pieces = board.piece_bb(*piece) & board.color_bb(Color::Black);
 
-        let white_count = white_pieces.popcnt() as Value;
-        let black_count = black_pieces.popcnt() as Value;
+        let white_count = white_pieces.count() as Value;
+        let black_count = black_pieces.count() as Value;
 
         score += piece_value(*piece) * (white_count - black_count);
     }
@@ -115,7 +113,6 @@ fn material_eval(board: &Board) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
 
     #[test]
     fn test_starting_position_material() {
@@ -127,7 +124,7 @@ mod tests {
     #[test]
     fn test_endgame_auto_switch() {
         // KRK endgame should trigger endgame eval
-        let board = Board::from_str("8/8/8/4k3/8/8/4K3/4R3 w - - 0 1").unwrap();
+        let board = Board::from_fen("8/8/8/4k3/8/8/4K3/4R3 w - - 0 1").unwrap();
         assert!(should_use_endgame(&board));
     }
     
@@ -138,4 +135,3 @@ mod tests {
         assert!(!should_use_endgame(&board));
     }
 }
-

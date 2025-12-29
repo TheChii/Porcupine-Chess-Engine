@@ -82,6 +82,7 @@ impl Default for KillerTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use movegen::{Square, MoveFlag};
 
     #[test]
     fn test_killer_store_and_get() {
@@ -89,9 +90,9 @@ mod tests {
         let ply = Ply::new(5);
         
         // Create test moves
-        let mv1 = Move::new(chess::Square::E2, chess::Square::E4, None);
-        let mv2 = Move::new(chess::Square::D2, chess::Square::D4, None);
-        let mv3 = Move::new(chess::Square::G1, chess::Square::F3, None);
+        let mv1 = Move::new(Square::E2, Square::E4, MoveFlag::DoublePawnPush);
+        let mv2 = Move::new(Square::D2, Square::D4, MoveFlag::DoublePawnPush);
+        let mv3 = Move::new(Square::G1, Square::F3, MoveFlag::Quiet);
 
         // Store first killer
         table.store(ply, mv1);

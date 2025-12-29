@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-chess = "3"
+movegen = { path = "ferrum-movegen", package = "ferrum-movegen" }
 nnue = { path = "nnue-rs" }
 binread = "2"
-arrayvec = "0.7.6"

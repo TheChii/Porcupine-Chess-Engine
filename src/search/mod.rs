@@ -185,14 +185,14 @@ impl Searcher {
     /// Set the position to search with history for repetition detection
     pub fn set_position(&mut self, board: Board) {
         self.position_history.clear();
-        self.position_history.push(board.get_hash());
+        self.position_history.push(board.hash());
         self.board = board;
     }
     
     /// Set position with move history for repetition detection
     pub fn set_position_with_history(&mut self, board: Board, history: Vec<u64>) {
         self.position_history = history;
-        self.position_history.push(board.get_hash());
+        self.position_history.push(board.hash());
         self.board = board;
     }
     
@@ -307,7 +307,7 @@ impl Searcher {
         self.history.age();
         
         // Configure time management
-        self.time_manager = TimeManager::from_limits(&limits, self.board.side_to_move());
+        self.time_manager = TimeManager::from_limits(&limits, self.board.turn());
         
         let max_depth = limits.depth.unwrap_or(Depth::MAX);
         
@@ -352,7 +352,6 @@ impl Searcher {
         // Initialize evaluator at root
         let local_nnue = self.nnue.clone();
         let mut root_evaluator = SearchEvaluator::new(local_nnue.as_ref(), &self.board);
-        //let mut root_evaluator = SearchEvaluator::Hce;
 
         for depth in 1..=max_depth.raw() {
             // Check if we can start a new iteration

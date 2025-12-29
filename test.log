@@ -1,0 +1,167 @@
+﻿cargo :    Compiling syn v1.0.109
+At line:1 char:1
++ cargo test 2>&1 | Out-File -FilePath test.log -Encoding utf8; Get-Con ...
++ ~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling syn v1.0.109:String 
+   ) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling ferrum-movegen v0.1.0 
+(C:\Users\profesor\Desktop\chessinrust\ferrum-movegen)
+warning: unused import: `MoveList`
+ --> ferrum-movegen\src\movegen\pawns.rs:3:29
+  |
+3 | use super::{Move, MoveFlag, MoveList, MoveSink};
+  |                             ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling binread_derive v2.1.0
+   Compiling binread v2.2.0
+   Compiling nnue v0.1.0 (C:\Users\profesor\Desktop\chessinrust\nnue-rs)
+warning: fields `version`, `arch`, `desc_len`, `transformer_arch`, and 
+`network_arch` are never read
+   --> nnue-rs\src\stockfish\halfkp.rs:226:13
+    |
+224 |         pub struct SfHalfKpModelReader {
+    |                    ------------------- fields in this struct
+225 |             #[br(args(VERSION))]
+226 |             version: Magic<u32>,
+    |             ^^^^^^^
+227 |             #[br(args(ARCH))]
+228 |             arch: Magic<u32>,
+    |             ^^^^
+229 |             desc_len: u32,
+    |             ^^^^^^^^
+...
+233 |             transformer_arch: Magic<u32>,
+    |             ^^^^^^^^^^^^^^^^
+...
+236 |             network_arch: Magic<u32>,
+    |             ^^^^^^^^^^^^
+    |
+    = note: `SfHalfKpModelReader` has a derived impl for the trait `Debug`, 
+but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> nnue-rs\src\stockfish\halfkp.rs:107:22
+    |
+107 |     pub fn new_state(&self, white_king: Square, black_king: Square) -> 
+SfHalfKpState {
+    |                      ^^^^^ the lifetime is elided here                 
+^^^^^^^^^^^^^ the same lifetime is hidden here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the 
+signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+107 |     pub fn new_state(&self, white_king: Square, black_king: Square) -> 
+SfHalfKpState<'_> {
+    |                                                                         
+            ++++
+
+warning: `nnue` (lib) generated 2 warnings (run `cargo fix --lib -p nnue` to 
+apply 1 suggestion)
+warning: value assigned to `side` is never read
+  --> ferrum-movegen\src\board\zobrist.rs:21:24
+   |
+21 |         let mut side = 0u64;
+   |                        ^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by 
+default
+
+   Compiling chessinrust v0.1.0 (C:\Users\profesor\Desktop\chessinrust)
+warning: unused import: `Piece`
+ --> src\search\ordering.rs:6:33
+  |
+6 | use crate::types::{Board, Move, Piece, Color, piece_value};
+  |                                 ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `MoveFlag` and `Piece`
+  --> src\search\tt.rs:11:46
+   |
+11 | use crate::types::{Move, Score, Depth, Hash, Piece, MoveFlag};
+   |                                              ^^^^^  ^^^^^^^^
+
+warning: unused import: `movegen::Square`
+  --> src\search\tt.rs:12:5
+   |
+12 | use movegen::Square;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `MoveFlag`
+  --> src\uci\mod.rs:11:40
+   |
+11 | use crate::types::{Board, Move, Depth, MoveFlag, Piece};
+   |                                        ^^^^^^^^
+
+warning: unused import: `Color`
+ --> src\book\polyglot.rs:4:40
+  |
+4 | use crate::types::{Board, Move, Piece, Color};
+  |                                        ^^^^^
+
+warning: `ferrum-movegen` (lib) generated 2 warnings (run `cargo fix --lib -p 
+ferrum-movegen` to apply 1 suggestion)
+warning: unused import: `Piece`
+  --> src\search\tt.rs:11:46
+   |
+11 | use crate::types::{Move, Score, Depth, Hash, Piece, MoveFlag};
+   |                                              ^^^^^
+
+warning: `chessinrust` (lib test) generated 4 warnings (3 duplicates) (run 
+`cargo fix --lib -p chessinrust --tests` to apply 1 suggestion)
+warning: `chessinrust` (lib) generated 5 warnings (run `cargo fix --lib -p 
+chessinrust` to apply 5 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.68s
+     Running unittests src\lib.rs 
+(target\debug\deps\chessinrust-97f8e06b7c4612de.exe)
+
+running 23 tests
+test book::zobrist::tests::test_after_e4 ... ok
+test book::zobrist::tests::test_startpos_hash ... ok
+test eval::endgame::tests::test_corner_distance ... ok
+test eval::endgame::tests::test_king_distance ... ok
+test eval::endgame::tests::test_king_in_corner_bonus ... ok
+test eval::endgame::tests::test_krk_endgame ... ok
+test eval::hce::tests::test_material_advantage ... ok
+test eval::hce::tests::test_starting_position ... ok
+test eval::tests::test_endgame_auto_switch ... ok
+test eval::tests::test_opening_no_switch ... ok
+test eval::tests::test_starting_position_material ... ok
+test search::killers::tests::test_killer_store_and_get ... ok
+test search::limits::tests::test_infinite ... ok
+test search::limits::tests::test_time_control ... ok
+test search::tt::tests::test_entry_pack_unpack ... ok
+test search::limits::tests::test_fixed_movetime ... FAILED
+test search::tt::tests::test_move_encoding ... ok
+test types::convert::tests::test_color_conversion ... ok
+test search::tt::tests::test_tt_basic ... ok
+test types::convert::tests::test_piece_conversion ... ok
+test types::convert::tests::test_square_conversion ... ok
+test types::score::tests::test_mate_scores ... ok
+test types::score::tests::test_tt_adjustment ... ok
+
+failures:
+
+---- search::limits::tests::test_fixed_movetime stdout ----
+
+thread 'search::limits::tests::test_fixed_movetime' (12920) panicked at src\search\limits.rs:304:9:
+assertion `left == right` failed
+  left: 874
+ right: 807
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    search::limits::tests::test_fixed_movetime
+
+test result: FAILED. 22 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`

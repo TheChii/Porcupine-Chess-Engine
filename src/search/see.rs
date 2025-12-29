@@ -3,8 +3,8 @@
 //! Determines if a capture sequence is winning, losing, or neutral.
 //! Uses fixed-size arrays to avoid allocations.
 
-use crate::types::{Board, Move};
-use chess::{BitBoard, Piece, Color, Square, EMPTY};
+use crate::types::{Board, Move, Piece, Color, Bitboard};
+use movegen::attacks::{pawn_attacks, knight_attacks, king_attacks, bishop_attacks, rook_attacks};
 
 /// Piece values for SEE (using lower values for faster cutoffs)
 const SEE_VALUES: [i32; 6] = [100, 300, 300, 500, 900, 20000]; // P, N, B, R, Q, K
@@ -12,17 +12,17 @@ const SEE_VALUES: [i32; 6] = [100, 300, 300, 500, 900, 20000]; // P, N, B, R, Q,
 /// Get SEE value for a piece
 #[inline]
 fn see_piece_value(piece: Piece) -> i32 {
-    SEE_VALUES[piece.to_index()]
+    SEE_VALUES[piece.index()]
 }
 
 /// Get least valuable attacker of a square
 #[inline]
-fn get_lva(board: &Board, sq: Square, side: Color, occupied: BitBoard) -> Option<(Square, Piece)> {
+fn get_lva(board: &Board, sq: movegen::Square, side: Color, occupied: Bitboard) -> Option<(movegen::Square, Piece)> {
     // Check each piece type from least to most valuable
     for piece in [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King] {
         let attackers = get_piece_attacks(board, sq, piece, side, occupied);
-        if attackers != EMPTY {
-            return Some((attackers.to_square(), piece));
+        if attackers.any() {
+            return Some((unsafe { attackers.lsb_unchecked() }, piece));
         }
     }
     None
@@ -30,28 +30,30 @@ fn get_lva(board: &Board, sq: Square, side: Color, occupied: BitBoard) -> Option
 
 /// Get attacks from a specific piece type to a square
 #[inline]
-fn get_piece_attacks(board: &Board, target: Square, piece: Piece, side: Color, occupied: BitBoard) -> BitBoard {
-    let our_pieces = board.pieces(piece) & board.color_combined(side) & occupied;
+fn get_piece_attacks(board: &Board, target: movegen::Square, piece: Piece, side: Color, occupied: Bitboard) -> Bitboard {
+    let our_pieces = board.piece_bb(piece) & board.color_bb(side) & occupied;
     
     match piece {
         Piece::Pawn => {
-            let pawn_attacks = chess::get_pawn_attacks(target, !side, EMPTY);
-            our_pieces & pawn_attacks
+            // For pawn attacks TO a square, we need attacks FROM the opposite color
+            let enemy_color = !side;
+            let attacks_to_target = pawn_attacks(enemy_color, target);
+            our_pieces & attacks_to_target
         }
         Piece::Knight => {
-            our_pieces & chess::get_knight_moves(target)
+            our_pieces & knight_attacks(target)
         }
         Piece::Bishop => {
-            our_pieces & chess::get_bishop_moves(target, occupied)
+            our_pieces & bishop_attacks(target, occupied)
         }
         Piece::Rook => {
-            our_pieces & chess::get_rook_moves(target, occupied)
+            our_pieces & rook_attacks(target, occupied)
         }
         Piece::Queen => {
-            our_pieces & (chess::get_bishop_moves(target, occupied) | chess::get_rook_moves(target, occupied))
+            our_pieces & (bishop_attacks(target, occupied) | rook_attacks(target, occupied))
         }
         Piece::King => {
-            our_pieces & chess::get_king_moves(target)
+            our_pieces & king_attacks(target)
         }
     }
 }
@@ -61,12 +63,12 @@ fn get_piece_attacks(board: &Board, target: Square, piece: Piece, side: Color, o
 /// Uses fixed-size array to avoid allocations.
 #[inline]
 pub fn see(board: &Board, mv: Move) -> i32 {
-    let from = mv.get_source();
-    let to = mv.get_dest();
+    let from = mv.from();
+    let to = mv.to();
     
     // Get initial capture value
-    let victim = board.piece_on(to);
-    let attacker = board.piece_on(from);
+    let victim = board.piece_at(to).map(|(p, _)| p);
+    let attacker = board.piece_at(from).map(|(p, _)| p);
     
     let (attacker_piece, mut gain) = match (attacker, victim) {
         (Some(a), Some(v)) => (a, see_piece_value(v)),
@@ -82,7 +84,7 @@ pub fn see(board: &Board, mv: Move) -> i32 {
     };
 
     // Handle promotion
-    if let Some(promo) = mv.get_promotion() {
+    if let Some(promo) = mv.flag().promotion_piece() {
         gain += see_piece_value(promo) - see_piece_value(Piece::Pawn);
     }
 
@@ -92,14 +94,14 @@ pub fn see(board: &Board, mv: Move) -> i32 {
     gains[depth] = gain;
     depth += 1;
 
-    let mut occupied = *board.combined() ^ BitBoard::from_square(from);
-    let mut side = !board.side_to_move();
+    let mut occupied = board.occupied() ^ Bitboard::from_square(from);
+    let mut side = !board.turn();
     let mut last_value = see_piece_value(attacker_piece);
     
     // Simulate the exchange
     loop {
         if let Some((sq, piece)) = get_lva(board, to, side, occupied) {
-            occupied ^= BitBoard::from_square(sq);
+            occupied = occupied ^ Bitboard::from_square(sq);
             gains[depth] = last_value;
             last_value = see_piece_value(piece);
             depth += 1;

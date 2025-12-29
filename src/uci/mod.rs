@@ -8,8 +8,8 @@ mod handler;
 
 pub use handler::UciHandler;
 
-use crate::types::{Board, Move, Depth};
-use std::str::FromStr;
+use crate::types::{Board, Move, Depth, MoveFlag, Piece};
+use movegen::Square;
 
 /// UCI engine identification
 pub const ENGINE_NAME: &str = "ChessInRust";
@@ -68,9 +68,7 @@ impl SearchParams {
 
 /// Parse a move string (e.g., "e2e4", "e7e8q") into a Move for the given board
 pub fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
-    use crate::types::MoveGen;
-    
-    let move_str = move_str.trim();
+    let move_str = move_str.trim().to_lowercase();
     if move_str.len() < 4 {
         return None;
     }
@@ -79,16 +77,16 @@ pub fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
     let from_str = &move_str[0..2];
     let to_str = &move_str[2..4];
     
-    let from = chess::Square::from_str(from_str).ok()?;
-    let to = chess::Square::from_str(to_str).ok()?;
+    let from = Square::from_algebraic(from_str)?;
+    let to = Square::from_algebraic(to_str)?;
     
     // Parse promotion piece if present
-    let promo = if move_str.len() > 4 {
+    let promo_piece = if move_str.len() > 4 {
         match move_str.chars().nth(4)? {
-            'q' | 'Q' => Some(chess::Piece::Queen),
-            'r' | 'R' => Some(chess::Piece::Rook),
-            'b' | 'B' => Some(chess::Piece::Bishop),
-            'n' | 'N' => Some(chess::Piece::Knight),
+            'q' => Some(Piece::Queen),
+            'r' => Some(Piece::Rook),
+            'b' => Some(Piece::Bishop),
+            'n' => Some(Piece::Knight),
             _ => None,
         }
     } else {
@@ -96,15 +94,15 @@ pub fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
     };
 
     // Find the matching legal move
-    let movegen = MoveGen::new_legal(board);
-    for m in movegen {
-        if m.get_source() == from && m.get_dest() == to {
+    let moves = board.generate_moves();
+    for m in moves.iter() {
+        if m.from() == from && m.to() == to {
             // For promotions, also check the promotion piece
-            if let Some(p) = promo {
-                if m.get_promotion() == Some(p) {
+            if let Some(p) = promo_piece {
+                if m.flag().promotion_piece() == Some(p) {
                     return Some(m);
                 }
-            } else if m.get_promotion().is_none() {
+            } else if m.flag().promotion_piece().is_none() {
                 return Some(m);
             }
         }
@@ -115,16 +113,5 @@ pub fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
 
 /// Format a move to UCI notation (e.g., "e2e4", "e7e8q")
 pub fn format_move(m: Move) -> String {
-    let mut s = format!("{}{}", m.get_source(), m.get_dest());
-    if let Some(promo) = m.get_promotion() {
-        let c = match promo {
-            chess::Piece::Queen => 'q',
-            chess::Piece::Rook => 'r',
-            chess::Piece::Bishop => 'b',
-            chess::Piece::Knight => 'n',
-            _ => unreachable!(),
-        };
-        s.push(c);
-    }
-    s
+    m.to_uci()
 }

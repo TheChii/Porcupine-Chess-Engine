@@ -8,14 +8,12 @@
 use super::{Searcher, ordering};
 use super::negamax::SearchResult;
 use super::see::is_good_capture;
-use crate::types::{Board, Move, Score, Ply, MoveGen};
+use crate::types::{Board, Move, Score, Ply, Piece};
 use crate::eval::SearchEvaluator;
-use arrayvec::ArrayVec;
 use std::time::Instant;
 
 /// Piece values for delta pruning (centipawns)
-const PIECE_VALUE: [i32; 7] = [
-    0,    // None
+const PIECE_VALUES: [i32; 6] = [
     100,  // Pawn
     320,  // Knight
     330,  // Bishop
@@ -33,8 +31,8 @@ const DELTA_SAFETY: i32 = 200;
 
 /// Get the value of a piece for delta pruning
 #[inline]
-fn piece_value(piece: chess::Piece) -> i32 {
-    PIECE_VALUE[piece as usize + 1]
+fn piece_value(piece: Piece) -> i32 {
+    PIECE_VALUES[piece.index()]
 }
 
 /// Quiescence search - search captures only to avoid horizon effect
@@ -68,7 +66,7 @@ pub fn quiescence(
 
     // === Delta Pruning (Big Delta) ===
     // If even capturing a queen wouldn't bring us close to alpha, give up
-    let in_check = *board.checkers() != chess::EMPTY;
+    let in_check = board.in_check();
     if !in_check && stand_pat.raw() + DELTA_MARGIN < alpha.raw() {
         return SearchResult {
             best_move: None,
@@ -82,11 +80,11 @@ pub fn quiescence(
         alpha = stand_pat;
     }
 
-    // Generate capture moves only - use ArrayVec
+    // Generate all moves and filter captures
     let t_gen = Instant::now();
-    let mut moves: ArrayVec<Move, 64> = MoveGen::new_legal(board)
-        .filter(|m| board.piece_on(m.get_dest()).is_some())
-        .take(64)
+    let all_moves = board.generate_moves();
+    let mut moves: Vec<Move> = all_moves.iter()
+        .filter(|m| m.is_capture())
         .collect();
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
@@ -113,13 +111,13 @@ pub fn quiescence(
         }
 
         // Get captured piece value for delta pruning
-        let captured = board.piece_on(m.get_dest());
+        let captured = board.piece_at(m.to()).map(|(p, _)| p);
         let captured_value = captured.map(piece_value).unwrap_or(0);
 
         // === Delta Pruning (Per-Move) ===
         // If this capture + safety margin can't raise alpha, skip it
         // Skip this check for promotions (they gain material)
-        if !in_check && m.get_promotion().is_none() {
+        if !in_check && !m.is_promotion() {
             if stand_pat.raw() + captured_value + DELTA_SAFETY < alpha.raw() {
                 continue;
             }
