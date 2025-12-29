@@ -8,8 +8,7 @@
 //! - Depth-preferred replacement with age-based eviction
 //! - Lock-free for Lazy SMP multi-threading support
 
-use crate::types::{Move, Score, Depth, Hash, Piece, MoveFlag};
-use movegen::Square;
+use crate::types::{Move, Score, Depth, Hash};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 
 /// Type of bound stored in TT entry

@@ -1,7 +1,7 @@
 //! Polyglot opening book format reader.
 
 use super::zobrist::polyglot_hash;
-use crate::types::{Board, Move, Piece, Color};
+use crate::types::{Board, Move, Piece};
 use movegen::{Square, File, Rank};
 use std::fs::File as FsFile;
 use std::io::{self, Read, Seek, SeekFrom};

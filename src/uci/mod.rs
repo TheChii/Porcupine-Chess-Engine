@@ -8,7 +8,7 @@ mod handler;
 
 pub use handler::UciHandler;
 
-use crate::types::{Board, Move, Depth, MoveFlag, Piece};
+use crate::types::{Board, Move, Depth, Piece};
 use movegen::Square;
 
 /// UCI engine identification

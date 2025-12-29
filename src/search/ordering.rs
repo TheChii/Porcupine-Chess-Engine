@@ -3,7 +3,7 @@
 //! Good move ordering is critical for alpha-beta pruning efficiency.
 //! Uses lazy selection sort to avoid full sort overhead.
 
-use crate::types::{Board, Move, Piece, Color, piece_value};
+use crate::types::{Board, Move, Color, piece_value};
 use super::history::HistoryTable;
 use super::see;
 

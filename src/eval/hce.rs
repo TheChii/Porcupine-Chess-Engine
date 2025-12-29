@@ -5,8 +5,7 @@
 //! - Tapered evaluation
 //! - Minimal branching
 
-use crate::types::{Board, Score, Color, Piece, Bitboard};
-use movegen::Square;
+use crate::types::{Board, Score, Color, Piece};
 
 // ============================================================================
 // PIECE VALUES (packed: [MG, EG] per piece)
