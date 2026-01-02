@@ -288,7 +288,7 @@ pub fn search<NT: NodeType>(
 
     // Generate legal moves
     let t_gen = Instant::now();
-    let moves = board.generate_moves();
+    let mut moves = board.generate_moves();
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
     // Check for checkmate or stalemate
@@ -318,12 +318,9 @@ pub fn search<NT: NodeType>(
     // Get counter-move for opponent's previous move
     let counter_move = prev_move.and_then(|pm| searcher.countermoves.get(pm));
 
-    // Collect moves into a Vec for ordering
-    let mut move_vec: Vec<Move> = moves.iter().collect();
-    
     // Order moves (TT, killers, counter-move, and history)
     let t_order = Instant::now();
-    ordering::order_moves_full(board, &mut move_vec, tt_move, killers, counter_move, &searcher.history, color);
+    ordering::order_moves_full(board, moves.as_slice_mut(), tt_move, killers, counter_move, &searcher.history, color);
     searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
 
     // Static eval is already computed for RFP if depth <= 7
@@ -356,7 +353,7 @@ pub fn search<NT: NodeType>(
     let mut searched_quiets: [Move; 64] = [Move::NULL; 64];
     let mut quiets_count = 0usize;
 
-    for (move_idx, &m) in move_vec.iter().enumerate() {
+    for (move_idx, m) in moves.iter().enumerate() {
         let new_board = board.make_move_new(m);
 
         // Prefetch TT entry for next position

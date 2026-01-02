@@ -11,7 +11,7 @@ use super::{Searcher, ordering};
 use super::negamax::SearchResult;
 use super::node_types::NodeType;
 use super::see::is_good_capture;
-use crate::types::{Board, Move, Score, Ply, Piece};
+use crate::types::{Board, Score, Ply, Piece};
 use crate::eval::SearchEvaluator;
 use std::time::Instant;
 
@@ -85,12 +85,9 @@ pub fn quiescence<NT: NodeType>(
         alpha = stand_pat;
     }
 
-    // Generate all moves and filter captures
+    // Generate only captures
     let t_gen = Instant::now();
-    let all_moves = board.generate_moves();
-    let mut moves: Vec<Move> = all_moves.iter()
-        .filter(|m| m.is_capture())
-        .collect();
+    let mut moves = board.generate_captures();
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
     if moves.is_empty() {
@@ -103,14 +100,13 @@ pub fn quiescence<NT: NodeType>(
     }
 
     let t_order = Instant::now();
-    ordering::order_captures(board, &mut moves);
+    ordering::order_captures(board, moves.as_slice_mut());
     searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
 
     let mut best_score = stand_pat;
     let mut pv = Vec::new();
 
-    for i in 0..moves.len() {
-        let m = moves[i];
+    for (_, m) in moves.iter().enumerate() {
         if searcher.should_stop() {
             break;
         }
