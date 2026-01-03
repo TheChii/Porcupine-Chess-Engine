@@ -41,7 +41,7 @@ impl UciHandler {
         // Attempt to load NNUE model (look next to executable first, then current dir)
         let exe_dir_path = std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|d| d.join("network.nnue")));
+            .and_then(|p| p.parent().map(|d| d.join("andromeda-3.nnue")));
         
         let nnue_path = if let Some(ref p) = exe_dir_path {
             if p.exists() {
@@ -49,16 +49,16 @@ impl UciHandler {
                 p.clone()
             } else {
                 println!("info string NNUE not at exe path: {:?}", p);
-                std::path::PathBuf::from("network.nnue")
+                std::path::PathBuf::from("andromeda-3.nnue")
             }
         } else {
             println!("info string Could not determine exe path");
-            std::path::PathBuf::from("network.nnue")
+            std::path::PathBuf::from("andromeda-3.nnue")
         };
         
-        match nnue::load_model(nnue_path.to_str().unwrap_or("network.nnue")) {
+        match nnue::load_model(nnue_path.to_str().unwrap_or("andromeda-3.nnue")) {
             Ok(model) => {
-                println!("info string NNUE loaded: {}", model.desc);
+                println!("info string NNUE loaded: Aurora (andromeda-3)");
                 searcher.set_nnue(Some(model));
             },
             Err(e) => {

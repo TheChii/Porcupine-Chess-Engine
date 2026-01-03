@@ -308,7 +308,7 @@ pub fn search<NT: NodeType>(
 
     // Quiescence search at depth 0
     if depth.is_qs() {
-        return qsearch::quiescence::<NT>(searcher, evaluator, board, ply, alpha, beta);
+        return qsearch::quiescence::<NT>(searcher, evaluator, board, ply, 0, alpha, beta);
     }
 
     // Get killers for this ply
@@ -338,7 +338,7 @@ pub fn search<NT: NodeType>(
         if let Some(eval) = static_eval {
             let threshold = alpha - Score::cp(200 + depth.raw() as i32 * 60);
             if eval < threshold {
-                let result = qsearch::quiescence::<OffPV>(searcher, evaluator, board, ply, alpha, beta);
+                let result = qsearch::quiescence::<OffPV>(searcher, evaluator, board, ply, 0, alpha, beta);
                  if result.score < alpha {
                     return result; 
                 }

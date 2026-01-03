@@ -1,48 +1,36 @@
 //! Board evaluation module.
 //!
-//! Uses NNUE if available, otherwise falls back to material.
-//! Automatically switches to endgame evaluation when few pieces remain.
+//! Uses NNUE if available, otherwise falls back to optimized HCE.
+//! The HCE handles all game phases with tapered evaluation.
 
 use crate::types::{Board, Score, Color, Piece, piece_value, Value, Move};
 
 pub mod nnue;
 pub mod hce;
-pub mod endgame;
 
 // Re-export the evaluator for use in search
 pub use nnue::NnueEvaluator;
-pub use endgame::{USE_ENDGAME_EVAL, should_use_endgame};
 
-/// Evaluator wrapper that handles NNUE, HCE, Endgame, or Material evaluation
+/// Evaluator wrapper that handles NNUE or HCE evaluation
 #[derive(Clone)]
 pub enum SearchEvaluator<'a> {
     Nnue(NnueEvaluator<'a>),
     Hce,
-    Endgame,
-    Material,
 }
 
 impl<'a> SearchEvaluator<'a> {
     pub fn new(model: Option<&'a nnue::Model>, board: &Board) -> Self {
         match model {
-            Some(m) => Self::Nnue(NnueEvaluator::new(&m.model, board)),
-            None => Self::Hce, // Use HCE as fallback
+            Some(m) => Self::Nnue(NnueEvaluator::new(&**m, board)),
+            None => Self::Hce,
         }
     }
 
     #[inline]
     pub fn evaluate(&mut self, board: &Board) -> Score {
-        // Check if we should switch to endgame eval
-        // This happens automatically when few pieces remain
-        if USE_ENDGAME_EVAL && should_use_endgame(board) {
-            return endgame::evaluate(board);
-        }
-        
         match self {
             Self::Nnue(e) => e.evaluate(board.turn()),
             Self::Hce => hce::evaluate(board),
-            Self::Endgame => endgame::evaluate(board),
-            Self::Material => material_eval_wrapper(board),
         }
     }
 
@@ -50,9 +38,7 @@ impl<'a> SearchEvaluator<'a> {
     pub fn update_move(&mut self, board: &Board, m: Move) -> bool {
         match self {
             Self::Nnue(e) => e.update_move(board, m),
-            Self::Hce => true,      // HCE is stateless
-            Self::Endgame => true,  // Endgame is stateless
-            Self::Material => true, // Material is stateless
+            Self::Hce => true, // HCE is stateless
         }
     }
 
@@ -66,20 +52,14 @@ impl<'a> SearchEvaluator<'a> {
 
 /// Evaluate the position.
 ///
-/// Uses NNUE if a model is provided, otherwise simple material fallback.
-/// Automatically switches to endgame eval when appropriate.
+/// Uses NNUE if a model is provided, otherwise HCE fallback.
 pub fn evaluate(board: &Board, model: Option<&nnue::Model>) -> Score {
-    // Auto-switch to endgame eval
-    if USE_ENDGAME_EVAL && should_use_endgame(board) {
-        return endgame::evaluate(board);
-    }
-    
     if let Some(m) = model {
         // Use NNUE evaluation
-        nnue::evaluate_scratch(&m.model, board)
+        nnue::evaluate_scratch(&**m, board)
     } else {
-        // Fallback to simple material
-        material_eval_wrapper(board)
+        // Fallback to HCE
+        hce::evaluate(board)
     }
 }
 
@@ -122,16 +102,10 @@ mod tests {
     }
     
     #[test]
-    fn test_endgame_auto_switch() {
-        // KRK endgame should trigger endgame eval
-        let board = Board::from_fen("8/8/8/4k3/8/8/4K3/4R3 w - - 0 1").unwrap();
-        assert!(should_use_endgame(&board));
-    }
-    
-    #[test]
-    fn test_opening_no_switch() {
-        // Starting position should NOT use endgame eval
+    fn test_hce_fallback() {
+        // Evaluate without NNUE should use HCE
         let board = Board::default();
-        assert!(!should_use_endgame(&board));
+        let score = evaluate(&board, None);
+        assert!(score.raw().abs() < 50);
     }
 }

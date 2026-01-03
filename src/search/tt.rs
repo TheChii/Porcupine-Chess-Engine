@@ -318,6 +318,7 @@ impl Default for TranspositionTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{Square, MoveFlag};
 
     #[test]
     fn test_tt_basic() {

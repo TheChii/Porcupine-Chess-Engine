@@ -32,6 +32,10 @@ const DELTA_MARGIN: i32 = 600;
 /// Safety margin for individual move delta pruning
 const DELTA_SAFETY: i32 = 100;
 
+/// Maximum depth for quiescence search (beyond main search)
+/// After this depth, only continue if in check
+const MAX_QSEARCH_DEPTH: i32 = 8;
+
 /// Get the value of a piece for delta pruning
 #[inline]
 fn piece_value(piece: Piece) -> i32 {
@@ -41,11 +45,13 @@ fn piece_value(piece: Piece) -> i32 {
 /// Quiescence search - search captures only to avoid horizon effect.
 ///
 /// Uses compile-time node type specialization via the `NodeType` trait.
+/// `qply` tracks depth within qsearch (starts at 0).
 pub fn quiescence<NT: NodeType>(
     searcher: &mut Searcher,
     evaluator: &mut SearchEvaluator,
     board: &Board,
     ply: Ply,
+    qply: i32,
     mut alpha: Score,
     beta: Score,
 ) -> SearchResult {
@@ -72,6 +78,18 @@ pub fn quiescence<NT: NodeType>(
     // === Delta Pruning (Big Delta) ===
     // If even capturing a queen wouldn't bring us close to alpha, give up
     let in_check = board.in_check();
+
+    // === Qsearch Depth Limit ===
+    // Beyond MAX_QSEARCH_DEPTH, only continue if in check
+    if qply >= MAX_QSEARCH_DEPTH && !in_check {
+        return SearchResult {
+            best_move: None,
+            score: stand_pat,
+            pv: Vec::new(),
+            stats: searcher.stats().clone(),
+        };
+    }
+
     if !in_check && stand_pat.raw() + DELTA_MARGIN < alpha.raw() {
         return SearchResult {
             best_move: None,
@@ -136,7 +154,7 @@ pub fn quiescence<NT: NodeType>(
         let mut child_evaluator = evaluator.clone();
         child_evaluator.update_move(board, m); // board is position BEFORE move
 
-        let result = quiescence::<NT::Next>(searcher, &mut child_evaluator, &new_board, ply.next(), -beta, -alpha);
+        let result = quiescence::<NT::Next>(searcher, &mut child_evaluator, &new_board, ply.next(), qply + 1, -beta, -alpha);
         let score = -result.score;
 
         if score > best_score {
