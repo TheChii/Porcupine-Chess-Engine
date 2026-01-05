@@ -8,12 +8,12 @@
 //! Uses compile-time node type specialization via the `NodeType` trait.
 
 use super::{Searcher, ordering};
-use super::negamax::SearchResult;
+use super::negamax::{SearchResult, PV};
 use super::node_types::NodeType;
 use super::see::is_good_capture;
 use crate::types::{Board, Score, Ply, Piece};
 use crate::eval::SearchEvaluator;
-use std::time::Instant;
+use smallvec::smallvec;
 
 /// Piece values for delta pruning (centipawns)
 const PIECE_VALUES: [i32; 6] = [
@@ -60,9 +60,12 @@ pub fn quiescence<NT: NodeType>(
     searcher.update_seldepth(ply);
 
     // Stand-pat evaluation using incremental evaluator
+    #[cfg(debug_assertions)]
     searcher.inc_eval_calls();
-    let t_eval = Instant::now();
+    #[cfg(debug_assertions)]
+    let t_eval = std::time::Instant::now();
     let stand_pat = evaluator.evaluate(board);
+    #[cfg(debug_assertions)]
     searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
 
     // Beta cutoff: position is already too good
@@ -70,7 +73,7 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: beta,
-            pv: Vec::new(),
+            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -85,7 +88,7 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: stand_pat,
-            pv: Vec::new(),
+            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -94,7 +97,7 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: alpha,
-            pv: Vec::new(),
+            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -104,25 +107,29 @@ pub fn quiescence<NT: NodeType>(
     }
 
     // Generate only captures
-    let t_gen = Instant::now();
+    #[cfg(debug_assertions)]
+    let t_gen = std::time::Instant::now();
     let mut moves = board.generate_captures();
+    #[cfg(debug_assertions)]
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
     if moves.is_empty() {
         return SearchResult {
             best_move: None,
             score: alpha,
-            pv: Vec::new(),
+            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
 
-    let t_order = Instant::now();
+    #[cfg(debug_assertions)]
+    let t_order = std::time::Instant::now();
     ordering::order_captures(board, moves.as_slice_mut());
+    #[cfg(debug_assertions)]
     searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
 
     let mut best_score = stand_pat;
-    let mut pv = Vec::new();
+    let mut pv: PV = smallvec![];
 
     for (_, m) in moves.iter().enumerate() {
         if searcher.should_stop() {

@@ -28,7 +28,7 @@ pub use node_types::{NodeType, Root, OnPV, OffPV};
 pub use correction::CorrectionHistoryTable;
 
 pub use limits::{SearchLimits, TimeManager};
-pub use negamax::SearchResult;
+pub use negamax::{SearchResult, PV};
 pub use tt::TranspositionTable;
 pub use killers::KillerTable;
 pub use history::HistoryTable;
@@ -37,6 +37,7 @@ pub use see::{see, see_ge, is_good_capture};
 
 use crate::types::{Board, Move, Score, Depth, Ply, NodeCount};
 use crate::eval::{nnue, SearchEvaluator};
+use smallvec::smallvec;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -67,6 +68,7 @@ impl SearchStats {
         }
     }
 
+    #[cfg(debug_assertions)]
     pub fn print_profiling(&self) {
         let total_ns = self.time_ms * 1_000_000;
         if total_ns > 0 {
@@ -81,6 +83,12 @@ impl SearchStats {
             
              println!("stats: qnodes {} evals {}", self.qnodes, self.eval_calls);
         }
+    }
+    
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    pub fn print_profiling(&self) {
+        // No-op in release builds
     }
 }
 
@@ -131,7 +139,7 @@ pub struct Searcher {
     /// Best move found so far
     best_move: Option<Move>,
     /// Principal variation
-    pv: Vec<Move>,
+    pv: PV,
     /// NNUE Model (thread-safe reference)
     pub nnue: Option<nnue::Model>,
     /// Position history for repetition detection (stores Zobrist hashes)
@@ -158,7 +166,7 @@ impl Searcher {
             time_manager: TimeManager::new(),
             stats: SearchStats::default(),
             best_move: None,
-            pv: Vec::new(),
+            pv: smallvec![],
             nnue: None,
             position_history: Vec::with_capacity(512),
             stable_move_count: 0,
@@ -294,7 +302,7 @@ impl Searcher {
             time_manager: self.time_manager.clone(),
             stats: SearchStats::default(),
             best_move: None,
-            pv: Vec::new(),
+            pv: smallvec![],
             nnue: self.nnue.clone(),
             position_history: self.position_history.clone(),
             stable_move_count: 0,

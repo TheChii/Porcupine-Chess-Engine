@@ -14,14 +14,17 @@ use super::node_types::{NodeType, OffPV};
 use super::tt::BoundType;
 use crate::types::{Board, Move, Score, Depth, Ply, Piece, SCORE_MATE};
 use crate::eval::SearchEvaluator;
-use std::time::Instant;
+use smallvec::{SmallVec, smallvec};
+
+/// Type alias for PV storage - stack-allocated for typical depths
+pub type PV = SmallVec<[Move; 32]>;
 
 /// Result from a search
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     pub best_move: Option<Move>,
     pub score: Score,
-    pub pv: Vec<Move>,
+    pub pv: PV,
     pub stats: SearchStats,
 }
 
@@ -70,7 +73,7 @@ pub fn search<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: draw_score,
-            pv: Vec::new(),
+            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -85,7 +88,7 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: None,
                 score: alpha,
-                pv: Vec::new(),
+                pv: smallvec![],
                 stats: searcher.stats().clone(),
             };
         }
@@ -97,7 +100,7 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: None,
                 score: beta,
-                pv: Vec::new(),
+                pv: smallvec![],
                 stats: searcher.stats().clone(),
             };
         }
@@ -119,7 +122,7 @@ pub fn search<NT: NodeType>(
                     return SearchResult {
                         best_move: tt_move,
                         score: tt_score,
-                        pv: tt_move.map(|m| vec![m]).unwrap_or_default(),
+                        pv: tt_move.map(|m| smallvec![m]).unwrap_or_default(),
                         stats: searcher.stats().clone(),
                     };
                 }
@@ -128,7 +131,7 @@ pub fn search<NT: NodeType>(
                         return SearchResult {
                             best_move: tt_move,
                             score: tt_score,
-                            pv: tt_move.map(|m| vec![m]).unwrap_or_default(),
+                            pv: tt_move.map(|m| smallvec![m]).unwrap_or_default(),
                             stats: searcher.stats().clone(),
                         };
                     }
@@ -141,7 +144,7 @@ pub fn search<NT: NodeType>(
                         return SearchResult {
                             best_move: tt_move,
                             score: tt_score,
-                            pv: tt_move.map(|m| vec![m]).unwrap_or_default(),
+                            pv: tt_move.map(|m| smallvec![m]).unwrap_or_default(),
                             stats: searcher.stats().clone(),
                         };
                     }
@@ -156,7 +159,7 @@ pub fn search<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: Score::draw(),
-            pv: Vec::new(),
+            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -171,9 +174,12 @@ pub fn search<NT: NodeType>(
     let color = board.turn();
     
     if !in_check && depth.raw() <= 7 {
+        #[cfg(debug_assertions)]
         searcher.inc_eval_calls();
-        let t_eval = Instant::now();
+        #[cfg(debug_assertions)]
+        let t_eval = std::time::Instant::now();
         let raw_eval = evaluator.evaluate(board);
+        #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
         
         // Apply correction history adjustment
@@ -188,7 +194,7 @@ pub fn search<NT: NodeType>(
              return SearchResult {
                 best_move: None,
                 score: eval - margin, // Soft cap to avoid crazy scores
-                pv: Vec::new(),
+                pv: smallvec![],
                 stats: searcher.stats().clone(),
             };
         }
@@ -216,7 +222,7 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                  best_move: result.best_move,
                  score: beta,
-                 pv: Vec::new(),
+                 pv: smallvec![],
                  stats: searcher.stats().clone()
             };
         }
@@ -260,7 +266,7 @@ pub fn search<NT: NodeType>(
                 return SearchResult {
                     best_move: None,
                     score: beta,
-                    pv: Vec::new(),
+                    pv: smallvec![],
                     stats: searcher.stats().clone(),
                 };
             }
@@ -287,8 +293,10 @@ pub fn search<NT: NodeType>(
     }
 
     // Generate legal moves
-    let t_gen = Instant::now();
+    #[cfg(debug_assertions)]
+    let t_gen = std::time::Instant::now();
     let mut moves = board.generate_moves();
+    #[cfg(debug_assertions)]
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
     // Check for checkmate or stalemate
@@ -301,7 +309,7 @@ pub fn search<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score,
-            pv: Vec::new(),
+            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -319,16 +327,21 @@ pub fn search<NT: NodeType>(
     let counter_move = prev_move.and_then(|pm| searcher.countermoves.get(pm));
 
     // Order moves (TT, killers, counter-move, and history)
-    let t_order = Instant::now();
+    #[cfg(debug_assertions)]
+    let t_order = std::time::Instant::now();
     ordering::order_moves_full(board, moves.as_slice_mut(), tt_move, killers, counter_move, &searcher.history, color);
+    #[cfg(debug_assertions)]
     searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
 
     // Static eval is already computed for RFP if depth <= 7
     // If not (e.g. was in check check or deeper), compute it now if needed for Razoring/Futility
     if static_eval.is_none() && depth.raw() <= 3 && !in_check {
+        #[cfg(debug_assertions)]
         searcher.inc_eval_calls();
-        let t_eval = Instant::now();
+        #[cfg(debug_assertions)]
+        let t_eval = std::time::Instant::now();
         let val = evaluator.evaluate(board);
+        #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
         static_eval = Some(val);
     }
@@ -348,7 +361,7 @@ pub fn search<NT: NodeType>(
 
     let mut best_move = None;
     let mut best_score = Score::neg_infinity();
-    let mut pv = Vec::new();
+    let mut pv: PV = smallvec![];
     // Use fixed-size array for searched quiets to avoid allocations
     let mut searched_quiets: [Move; 64] = [Move::NULL; 64];
     let mut quiets_count = 0usize;

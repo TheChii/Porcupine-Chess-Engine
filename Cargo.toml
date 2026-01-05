@@ -7,3 +7,5 @@ edition = "2021"
 movegen = { path = "ferrum-movegen", package = "ferrum-movegen" }
 nnue = { path = "ferrum-nnue" }
 binread = "2"
+smallvec = "1.13"
+
