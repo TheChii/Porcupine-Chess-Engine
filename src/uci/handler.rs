@@ -67,42 +67,16 @@ impl UciHandler {
             }
         }
 
-        // Attempt to load opening book (look next to executable first, then current dir)
-        let book_filename = "Openings.bin";
-        let exe_dir_book = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join(book_filename)));
-        
-        let book_path = if let Some(ref p) = exe_dir_book {
-            if p.exists() {
-                println!("info string Found book next to exe: {:?}", p);
-                p.to_string_lossy().to_string()
-            } else {
-                println!("info string Book not at exe path: {:?}, trying current dir", p);
-                std::path::PathBuf::from(book_filename).to_string_lossy().to_string()
-            }
-        } else {
-            println!("info string Could not determine exe path for book");
-            book_filename.to_string()
-        };
-
-        let book = match PolyglotBook::load(&book_path) {
-            Ok(b) => {
-                println!("info string Opening book loaded: {} ({} entries)", b.desc, b.len());
-                Some(b)
-            }
-            Err(e) => {
-                println!("info string Opening book not loaded: {:?}", e);
-                None
-            }
-        };
+        // Standard UCI: opening book is disabled by default
+        // GUI controls the opening book externally, or user can enable OwnBook option
+        // and set BookPath to load a polyglot book manually
 
         Self {
             board: Board::default(),
             searcher,
-            book,
-            use_own_book: true, // Enable book by default
-            book_path,
+            book: None, // No automatic book loading
+            use_own_book: false, // Disabled by default (standard UCI behavior)
+            book_path: String::new(), // No default path
             debug: false,
             quit: false,
             move_overhead: 10, // Default 10ms
@@ -173,8 +147,8 @@ impl UciHandler {
         // Send options
         self.send("option name Threads type spin default 1 min 1 max 64");
         self.send("option name MoveOverhead type spin default 10 min 0 max 5000");
-        self.send("option name OwnBook type check default true");
-        self.send("option name BookPath type string default Openings.bin");
+        self.send("option name OwnBook type check default false");
+        self.send("option name BookPath type string default <empty>");
         
         self.send("uciok");
     }

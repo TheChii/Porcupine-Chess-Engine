@@ -371,10 +371,19 @@ impl Searcher {
                 break;
             }
             
-            // Early termination: stop when forced mate is found (winning or losing)
-            // No point searching further if we've found a forced mate
+            // Early termination: only stop if we found a mate within the current depth.
+            // If mate distance > depth, deeper search might find a shorter mate (or longer defense).
+            // Example: At depth 3, finding "mate in 5" should NOT stop search,
+            //          but "mate in 2" (within depth 3) can stop.
+            // Same for mated scores: "mated in 5" at depth 3 should continue to find defenses.
             if best_score.is_mate_score() && self.best_move.is_some() {
-                break;
+                if let Some(plies_to_mate) = best_score.mate_distance() {
+                    // Only stop if the mate is achievable within remaining search depth
+                    // plies_to_mate represents plies from root, so if it's <= depth, we're done
+                    if plies_to_mate <= depth {
+                        break;
+                    }
+                }
             }
 
             // Aspiration window: use previous score +/- delta after depth 1

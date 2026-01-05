@@ -104,6 +104,11 @@ impl Score {
     }
 
     /// Adjust a mate score when storing in TT (relative to current ply)
+    /// 
+    /// Mate scores need ply adjustment because the TT stores position-relative scores:
+    /// - A "mate in N from root" at ply P means "mate in (N-P) from this position"
+    /// - Store: add ply to make it position-relative (higher score = closer to mate)
+    /// - For mated scores, subtract ply (more negative = closer to being mated)
     #[inline]
     pub const fn to_tt(self, ply: i32) -> Self {
         if self.is_mate() {
