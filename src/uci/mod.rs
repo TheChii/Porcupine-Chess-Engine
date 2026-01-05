@@ -12,8 +12,8 @@ use crate::types::{Board, Move, Depth, Piece};
 use movegen::Square;
 
 /// UCI engine identification
-pub const ENGINE_NAME: &str = "ChessInRust";
-pub const ENGINE_AUTHOR: &str = "Anonymous";
+pub const ENGINE_NAME: &str = "Porcupine";
+pub const ENGINE_AUTHOR: &str = "Chiriac Theodor";
 
 /// Time control parameters from "go" command
 #[derive(Debug, Clone, Default)]
