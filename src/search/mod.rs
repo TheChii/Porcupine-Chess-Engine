@@ -180,6 +180,12 @@ impl Searcher {
         self.num_threads = threads.max(1).min(64);
     }
     
+    /// Set hash table size in MB (recreates the TT)
+    pub fn set_hash_size(&mut self, size_mb: usize) {
+        let size_mb = size_mb.max(1).min(16384); // 1 MB to 16 GB
+        self.shared = Arc::new(SharedState::new(size_mb));
+    }
+    
     /// Get number of threads
     pub fn threads(&self) -> usize {
         self.num_threads
