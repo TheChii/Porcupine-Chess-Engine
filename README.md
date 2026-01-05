@@ -1,15 +1,19 @@
 <p align="center">
+  <img src="icon.png" alt="Piglet Chess Engine" width="200">
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Language-Rust-orange?style=for-the-badge&logo=rust" alt="Rust">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/UCI-Compatible-green?style=for-the-badge" alt="UCI">
   <img src="https://img.shields.io/badge/NNUE-HalfKP-purple?style=for-the-badge" alt="NNUE">
 </p>
 
-# ♟️ Ferrum Chess Engine
+# 🐷 Piglet Chess Engine
 
-**Ferrum** is a high-performance, UCI-compatible chess engine written entirely in Rust. Combining cutting-edge search algorithms with NNUE (Efficiently Updatable Neural Network) evaluation, Ferrum delivers strong, tactical play while maintaining blazing-fast performance.
+**Piglet** is a high-performance, UCI-compatible chess engine written entirely in Rust. Combining cutting-edge search algorithms with NNUE (Efficiently Updatable Neural Network) evaluation, Piglet delivers strong, tactical play while maintaining blazing-fast performance.
 
-> *"Ferrum"* — Latin for iron, symbolizing the engine's strength and resilience.
+> *Piglet is the successor of [Ferrum](https://github.com/TheChii/Ferrum), rebuilt with enhanced strength and new ideas.*
 
 ---
 
@@ -64,8 +68,8 @@
 
 ```bash
 # Clone with submodules
-git clone --recursive https://github.com/TheChii/Ferrum.git
-cd Ferrum
+git clone --recursive https://github.com/TheChii/Piglet.git
+cd Piglet
 
 # Build optimized release
 cargo build --release
@@ -77,13 +81,13 @@ cp network.nnue target/release/
 The executable will be at `target/release/chessinrust` (or `.exe` on Windows).
 
 ### Download Pre-built
-Check the [Releases](https://github.com/TheChii/Ferrum/releases) page for pre-compiled binaries.
+Check the [Releases](https://github.com/TheChii/Piglet/releases) page for pre-compiled binaries.
 
 ---
 
 ## 🎮 Usage
 
-Ferrum implements the **Universal Chess Interface (UCI)** protocol. Connect it to any UCI-compatible chess GUI:
+Piglet implements the **Universal Chess Interface (UCI)** protocol. Connect it to any UCI-compatible chess GUI:
 
 | GUI | Platform | Link |
 |-----|----------|------|
@@ -130,7 +134,7 @@ bestmove g1f3
 ## 📁 Project Structure
 
 ```
-Ferrum/
+Piglet/
 ├── src/                    # Main engine source
 │   ├── eval/               # Evaluation (NNUE + HCE)
 │   ├── search/             # Search algorithm
@@ -167,7 +171,7 @@ cargo test --release -p nnue benchmark
 
 ## 📈 Strength
 
-Ferrum is designed to compete at a strong amateur level. Key factors contributing to its strength:
+Piglet is designed to compete at a strong amateur level. Key factors contributing to its strength:
 
 - ✅ Modern NNUE evaluation with HalfKP features
 - ✅ Efficient search with proper pruning hierarchy
@@ -215,4 +219,4 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 ## 📚 Keywords
 
-*chess engine, rust chess, uci engine, nnue, neural network chess, alpha-beta search, chess ai, open source chess, chess programming, ferrum*
+*chess engine, rust chess, uci engine, nnue, neural network chess, alpha-beta search, chess ai, open source chess, chess programming, piglet*
