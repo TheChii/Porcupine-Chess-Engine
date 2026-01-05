@@ -1,2 +1,9 @@
 ﻿[build]
 rustflags = ["-C", "target-cpu=native"]
+
+# Windows needs larger stack for NNUE weights (~400KB arrays)
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=native", "-C", "link-args=/STACK:8388608"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "target-cpu=native", "-C", "link-args=-Wl,--stack,8388608"]

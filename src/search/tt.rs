@@ -302,10 +302,25 @@ impl TranspositionTable {
     }
 
     /// Prefetch entry for a hash (performance optimization)
+    /// Uses CPU prefetch intrinsics to bring TT entry into L1 cache
     #[inline]
     pub fn prefetch(&self, hash: Hash) {
-        let _ = self.index(hash);
-        // Future: use platform-specific prefetch intrinsics
+        let idx = self.index(hash);
+        let ptr = self.entries.as_ptr().wrapping_add(idx) as *const i8;
+        
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            std::arch::x86_64::_mm_prefetch(ptr, std::arch::x86_64::_MM_HINT_T0);
+        }
+        
+        #[cfg(target_arch = "x86")]
+        unsafe {
+            std::arch::x86::_mm_prefetch(ptr, std::arch::x86::_MM_HINT_T0);
+        }
+        
+        // No-op on other architectures
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+        let _ = ptr;
     }
 }
 
