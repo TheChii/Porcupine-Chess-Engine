@@ -38,25 +38,8 @@ impl UciHandler {
     pub fn new() -> Self {
         let mut searcher = Searcher::new();
         
-        // Attempt to load NNUE model (look next to executable first, then current dir)
-        let exe_dir_path = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("network.nnue")));
-        
-        let nnue_path = if let Some(ref p) = exe_dir_path {
-            if p.exists() {
-                println!("info string Found NNUE next to exe: {:?}", p);
-                p.clone()
-            } else {
-                println!("info string NNUE not at exe path: {:?}", p);
-                std::path::PathBuf::from("network.nnue")
-            }
-        } else {
-            println!("info string Could not determine exe path");
-            std::path::PathBuf::from("network.nnue")
-        };
-        
-        match nnue::load_model(nnue_path.to_str().unwrap_or("network.nnue")) {
+        // Load embedded NNUE model (compiled into the binary)
+        match nnue::load_embedded_model() {
             Ok(model) => {
                 println!("info string NNUE loaded: HalfKP (40960->256x2->32->32->1)");
                 searcher.set_nnue(Some(model));
@@ -194,20 +177,48 @@ impl UciHandler {
                     if self.debug {
                         eprintln!("OwnBook set to: {}", self.use_own_book);
                     }
+                    
+                    // If enabling OwnBook and we have a book path, load the book
+                    if self.use_own_book && !self.book_path.is_empty() {
+                        match PolyglotBook::load(&self.book_path) {
+                            Ok(b) => {
+                                println!("info string Opening book loaded: {} ({} entries)", b.desc, b.len());
+                                self.book = Some(b);
+                            }
+                            Err(e) => {
+                                println!("info string Failed to load book {}: {:?}", self.book_path, e);
+                                self.book = None;
+                            }
+                        }
+                    } else if !self.use_own_book {
+                        // If disabling OwnBook, unload the book
+                        if self.book.is_some() {
+                            if self.debug {
+                                eprintln!("OwnBook disabled, unloading book");
+                            }
+                            self.book = None;
+                        }
+                    }
                 }
             }
             "bookpath" => {
                 if let Some(v) = value {
                     self.book_path = v.to_string();
-                    // Try to load the new book
-                    match PolyglotBook::load(&self.book_path) {
-                        Ok(b) => {
-                            println!("info string Opening book loaded: {} ({} entries)", b.desc, b.len());
-                            self.book = Some(b);
+                    // Only load the book if OwnBook is enabled
+                    if self.use_own_book {
+                        match PolyglotBook::load(&self.book_path) {
+                            Ok(b) => {
+                                println!("info string Opening book loaded: {} ({} entries)", b.desc, b.len());
+                                self.book = Some(b);
+                            }
+                            Err(e) => {
+                                println!("info string Failed to load book {}: {:?}", self.book_path, e);
+                                self.book = None;
+                            }
                         }
-                        Err(e) => {
-                            println!("info string Failed to load book {}: {:?}", self.book_path, e);
-                            self.book = None;
+                    } else {
+                        if self.debug {
+                            eprintln!("BookPath set but OwnBook is disabled, not loading book");
                         }
                     }
                 }
