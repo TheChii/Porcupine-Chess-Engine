@@ -1,11 +1,14 @@
 [package]
-name = "chessinrust"
+name = "porcupine"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "porcupine"
+path = "src/main.rs"
 
 [dependencies]
 movegen = { path = "ferrum-movegen", package = "ferrum-movegen" }
 nnue = { path = "ferrum-nnue" }
 binread = "2"
 smallvec = "1.13"
-

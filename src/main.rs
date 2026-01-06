@@ -1,4 +1,4 @@
-use chessinrust::uci::UciHandler;
+use porcupine::uci::UciHandler;
 
 fn main() {
     let mut handler = UciHandler::new();
