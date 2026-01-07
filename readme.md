@@ -7,8 +7,6 @@
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/UCI-Compatible-green?style=for-the-badge" alt="UCI">
   <img src="https://img.shields.io/badge/NNUE-HalfKP-purple?style=for-the-badge" alt="NNUE">
-  <img src="https://img.shields.io/badge/Author-Chiriac%20Theodor-red?style=for-the-badge" alt="Author">
-  <img src="https://img.shields.io/badge/Country-Romania-yellow?style=for-the-badge" alt="Romania">
 </p>
 
 # 🦔 Porcupine Chess Engine
