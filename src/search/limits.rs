@@ -299,10 +299,10 @@ mod tests {
         
         assert!(!tm.is_infinite());
         // 1000 - 50 overhead = 950 available
-        // soft = 950 * 85% = 807
-        // hard = 950 * 95% = 902
-        assert_eq!(tm.soft_limit_ms(), 807);
-        assert_eq!(tm.hard_limit_ms(), 902);
+        // soft = 950 * 92% = 874
+        // hard = 950 * 98% = 931
+        assert_eq!(tm.soft_limit_ms(), 874);
+        assert_eq!(tm.hard_limit_ms(), 931);
     }
     
     #[test]

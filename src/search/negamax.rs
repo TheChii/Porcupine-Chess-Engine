@@ -83,7 +83,7 @@ pub fn search<NT: NodeType>(
     let mated_score = -SCORE_MATE + ply.raw() as i32;
 
     if alpha.raw() < mated_score {
-        alpha = Score(mated_score);
+        alpha = Score(mated_score as i16);
         if alpha >= beta {
             return SearchResult {
                 best_move: None,
@@ -95,7 +95,7 @@ pub fn search<NT: NodeType>(
     }
 
     if beta.raw() > mate_score {
-        beta = Score(mate_score);
+        beta = Score(mate_score as i16);
         if alpha >= beta {
             return SearchResult {
                 best_move: None,

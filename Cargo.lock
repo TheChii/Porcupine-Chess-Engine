@@ -52,16 +52,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "chessinrust"
-version = "0.1.0"
-dependencies = [
- "binread",
- "ferrum-movegen",
- "nnue",
- "smallvec",
-]
-
-[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -77,6 +67,16 @@ version = "0.1.0"
 dependencies = [
  "binread",
  "bytemuck",
+]
+
+[[package]]
+name = "porcupine"
+version = "0.1.0"
+dependencies = [
+ "binread",
+ "ferrum-movegen",
+ "nnue",
+ "smallvec",
 ]
 
 [[package]]
