@@ -10,7 +10,7 @@
 use super::{Searcher, ordering};
 use super::negamax::{SearchResult, PV};
 use super::node_types::NodeType;
-use super::see::is_good_capture;
+use super::see::{is_good_capture, is_good_capture_with_victim};
 use crate::types::{Board, Score, Ply, Piece};
 use crate::eval::SearchEvaluator;
 use smallvec::smallvec;
@@ -151,7 +151,7 @@ pub fn quiescence<NT: NodeType>(
 
         // === SEE Pruning ===
         // Skip captures that lose material according to SEE
-        if !in_check && !is_good_capture(board, m) {
+        if !in_check && !is_good_capture_with_victim(board, m, captured) {
             continue;
         }
 

@@ -55,13 +55,22 @@ pub fn score_move(
 
     // Captures: skip SEE for obviously good captures (victim >= attacker)
     if m.is_capture() {
-        let mvv_lva = mvv_lva_score(board, m);
+        // MVV-LVA logic inlined to reuse victim for SEE
+        let victim = board.piece_at(m.to()).map(|(p, _)| p);
+        let attacker = board.piece_at(m.from()).map(|(p, _)| p);
+        
+        let mvv_lva = match (victim, attacker) {
+            (Some(v), Some(a)) => piece_value(v) * 10 - piece_value(a),
+            _ => 0,
+        };
+
         if mvv_lva >= 0 {
             // Winning or equal capture (e.g., PxQ, NxN) - skip expensive SEE
             score += GOOD_CAPTURE_BONUS + mvv_lva;
         } else {
             // Potentially losing capture - use SEE to verify
-            let see_value = see::see(board, m);
+            // Pass the victim we already found to avoid re-lookup
+            let see_value = see::see_captured(board, m, victim);
             if see_value >= 0 {
                 score += GOOD_CAPTURE_BONUS + mvv_lva;
             } else {

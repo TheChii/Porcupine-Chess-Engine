@@ -62,18 +62,22 @@ fn get_piece_attacks(board: &Board, target: movegen::Square, piece: Piece, side:
 /// Returns the material balance after a capture sequence.
 /// Uses fixed-size array to avoid allocations.
 #[inline]
-pub fn see(board: &Board, mv: Move) -> i32 {
+/// Static Exchange Evaluation with known victim
+/// Returns the material balance after a capture sequence.
+/// `victim` should be the piece at the target square (None for En Passant).
+#[inline]
+pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
     let from = mv.from();
     let to = mv.to();
     
-    // Get initial capture value
-    let victim = board.piece_at(to).map(|(p, _)| p);
     let attacker = board.piece_at(from).map(|(p, _)| p);
     
     let (attacker_piece, mut gain) = match (attacker, victim) {
         (Some(a), Some(v)) => (a, see_piece_value(v)),
         (Some(a), None) => {
-            // En passant capture
+            // En passant capture or quiet move?
+            // SEE is typically only called for captures.
+            // If it's a pawn moving to empty square, assume EP if it's a capture.
             if a == Piece::Pawn {
                 (a, see_piece_value(Piece::Pawn))
             } else {
@@ -125,6 +129,14 @@ pub fn see(board: &Board, mv: Move) -> i32 {
     gains[0]
 }
 
+/// Static Exchange Evaluation
+/// Returns the material balance after a capture sequence.
+#[inline]
+pub fn see(board: &Board, mv: Move) -> i32 {
+    let victim = board.piece_at(mv.to()).map(|(p, _)| p);
+    see_captured(board, mv, victim)
+}
+
 /// Check if SEE is greater than or equal to threshold
 #[inline]
 pub fn see_ge(board: &Board, mv: Move, threshold: i32) -> bool {
@@ -135,4 +147,10 @@ pub fn see_ge(board: &Board, mv: Move, threshold: i32) -> bool {
 #[inline]
 pub fn is_good_capture(board: &Board, mv: Move) -> bool {
     see_ge(board, mv, 0)
+}
+
+/// Check if a capture is winning (SEE >= 0) with known victim
+#[inline]
+pub fn is_good_capture_with_victim(board: &Board, mv: Move, victim: Option<Piece>) -> bool {
+    see_captured(board, mv, victim) >= 0
 }
