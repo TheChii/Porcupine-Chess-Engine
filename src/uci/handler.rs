@@ -5,7 +5,7 @@ use super::{format_move, parse_move, SearchParams, ENGINE_AUTHOR, ENGINE_NAME};
 use crate::book::PolyglotBook;
 use crate::eval::nnue;
 use crate::search::{SearchLimits, Searcher};
-use crate::types::{Board, Move, Score};
+use crate::types::Board;
 use std::io::{self, BufRead, Write};
 
 /// UCI protocol handler
@@ -190,7 +190,7 @@ impl UciHandler {
                     if self.use_own_book && !self.book_path.is_empty() {
                         match PolyglotBook::load(&self.book_path) {
                             Ok(b) => {
-                                println!(
+                                eprintln!(
                                     "info string Opening book loaded: {} ({} entries)",
                                     b.desc,
                                     b.len()
@@ -198,7 +198,7 @@ impl UciHandler {
                                 self.book = Some(b);
                             }
                             Err(e) => {
-                                println!(
+                                eprintln!(
                                     "info string Failed to load book {}: {:?}",
                                     self.book_path, e
                                 );
@@ -223,7 +223,7 @@ impl UciHandler {
                     if self.use_own_book {
                         match PolyglotBook::load(&self.book_path) {
                             Ok(b) => {
-                                println!(
+                                eprintln!(
                                     "info string Opening book loaded: {} ({} entries)",
                                     b.desc,
                                     b.len()
@@ -231,7 +231,7 @@ impl UciHandler {
                                 self.book = Some(b);
                             }
                             Err(e) => {
-                                println!(
+                                eprintln!(
                                     "info string Failed to load book {}: {:?}",
                                     self.book_path, e
                                 );
@@ -320,7 +320,7 @@ impl UciHandler {
         let limits = SearchLimits::from_params(&params).with_move_overhead(self.move_overhead);
 
         let mut searcher = self.searcher.take().unwrap();
-        searcher.set_position(self.board.clone());
+        // Position and history already set by cmd_position — don't overwrite
 
         let (tx, rx) = std::sync::mpsc::channel();
         self.search_rx = Some(rx);
@@ -333,6 +333,7 @@ impl UciHandler {
                 Some(m) => println!("bestmove {}", format_move(m)),
                 None => println!("bestmove 0000"),
             }
+            io::stdout().flush().ok();
 
             // Send searcher back
             let _ = tx.send(searcher);
@@ -374,68 +375,3 @@ impl UciHandler {
     }
 }
 
-/// Info message builder for search output
-#[allow(dead_code)]
-pub struct InfoBuilder {
-    parts: Vec<String>,
-}
-
-#[allow(dead_code)]
-impl InfoBuilder {
-    pub fn new() -> Self {
-        Self { parts: Vec::new() }
-    }
-
-    pub fn depth(mut self, d: i32) -> Self {
-        self.parts.push(format!("depth {}", d));
-        self
-    }
-
-    pub fn seldepth(mut self, d: i32) -> Self {
-        self.parts.push(format!("seldepth {}", d));
-        self
-    }
-
-    pub fn score(mut self, s: Score) -> Self {
-        self.parts.push(format!("score {}", s));
-        self
-    }
-
-    pub fn nodes(mut self, n: u64) -> Self {
-        self.parts.push(format!("nodes {}", n));
-        self
-    }
-
-    pub fn nps(mut self, n: u64) -> Self {
-        self.parts.push(format!("nps {}", n));
-        self
-    }
-
-    pub fn time(mut self, ms: u64) -> Self {
-        self.parts.push(format!("time {}", ms));
-        self
-    }
-
-    pub fn pv(mut self, moves: &[Move]) -> Self {
-        if !moves.is_empty() {
-            let pv_str: Vec<String> = moves.iter().map(|m| format_move(*m)).collect();
-            self.parts.push(format!("pv {}", pv_str.join(" ")));
-        }
-        self
-    }
-
-    pub fn hashfull(mut self, permill: u32) -> Self {
-        self.parts.push(format!("hashfull {}", permill));
-        self
-    }
-
-    pub fn build(self) -> String {
-        format!("info {}", self.parts.join(" "))
-    }
-}
-
-impl Default for InfoBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
