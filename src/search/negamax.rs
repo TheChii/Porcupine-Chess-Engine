@@ -304,10 +304,11 @@ pub fn search<NT: NodeType>(
         }
     }
 
-    // Generate legal moves
+    // Check for checkmate or stalemate early?
+    // We can't anymore because we defer move generation! Wait, no, we generate moves upfront!
     #[cfg(debug_assertions)]
     let t_gen = std::time::Instant::now();
-    let mut moves = board.generate_moves();
+    let moves = board.generate_moves();
     #[cfg(debug_assertions)]
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
@@ -338,12 +339,10 @@ pub fn search<NT: NodeType>(
     // Get counter-move for opponent's previous move
     let counter_move = prev_move.and_then(|pm| searcher.countermoves.get(pm));
 
-    // Order moves (TT, killers, counter-move, and history)
-    #[cfg(debug_assertions)]
-    let t_order = std::time::Instant::now();
-    ordering::order_moves_full(board, moves.as_slice_mut(), tt_move, killers, counter_move, &searcher.history, color);
-    #[cfg(debug_assertions)]
-    searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
+    // Create MovePicker to lazily score and yield moves
+    let mut move_picker = ordering::MovePicker::new(
+        board, moves, tt_move, killers, counter_move, color
+    );
 
     // Static eval is already computed for RFP if depth <= 7
     // If not (e.g. was in check check or deeper), compute it now if needed for Razoring/Futility
@@ -378,7 +377,8 @@ pub fn search<NT: NodeType>(
     let mut searched_quiets: [Move; 64] = [Move::NULL; 64];
     let mut quiets_count = 0usize;
 
-    for (move_idx, m) in moves.iter().enumerate() {
+    let mut move_idx = 0;
+    while let Some(m) = move_picker.next(&searcher.history) {
         if NT::ROOT {
             searcher.report_currmove(m, move_idx + 1);
         }
@@ -600,6 +600,8 @@ pub fn search<NT: NodeType>(
             searched_quiets[quiets_count] = m;
             quiets_count += 1;
         }
+
+        move_idx += 1;
     }
 
     // === Update Correction History ===

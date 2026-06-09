@@ -94,77 +94,181 @@ pub fn score_move(
     score
 }
 
-#[allow(dead_code)]
-pub fn order_moves_full(
-    board: &Board, 
-    moves: &mut [Move], 
+use crate::types::MoveList;
+
+pub struct MovePicker<'a> {
+    board: &'a Board,
+    moves: MoveList,
+    scores: [i32; 256],
     tt_move: Option<Move>,
     killers: [Option<Move>; 2],
     counter_move: Option<Move>,
-    history: &HistoryTable,
     color: Color,
-) {
-    // Score moves in place
-    let mut scores: [i32; 256] = [0; 256];
-    let count = moves.len().min(256);
     
-    for i in 0..count {
-        scores[i] = score_move(board, moves[i], tt_move, killers, counter_move, history, color);
-    }
-    
-    // Selection sort by scores (in-place, no allocation)
-    for i in 0..count {
-        let mut best_idx = i;
-        let mut best_score = scores[i];
-        
-        for j in (i + 1)..count {
-            if scores[j] > best_score {
-                best_score = scores[j];
-                best_idx = j;
-            }
+    phase: i32,
+    yielded_killers: usize,
+}
+
+impl<'a> MovePicker<'a> {
+    pub fn new(
+        board: &'a Board,
+        moves: MoveList,
+        tt_move: Option<Move>,
+        killers: [Option<Move>; 2],
+        counter_move: Option<Move>,
+        color: Color,
+    ) -> Self {
+        // Verify TT move is legal by checking if it's in the generated move list
+        let valid_tt = if let Some(tt) = tt_move {
+            moves.iter().any(|m| m == tt)
+        } else {
+            false
+        };
+        let validated_tt = if valid_tt { tt_move } else { None };
+
+        Self {
+            board,
+            moves,
+            scores: [0; 256],
+            tt_move: validated_tt,
+            killers,
+            counter_move,
+            color,
+            phase: 0,
+            yielded_killers: 0,
         }
-        
-        if best_idx != i {
-            moves.swap(i, best_idx);
-            scores.swap(i, best_idx);
+    }
+
+    pub fn next(&mut self, history: &HistoryTable) -> Option<Move> {
+        loop {
+            match self.phase {
+                0 => { // Phase 1: TT Move
+                    self.phase = 1;
+                    if let Some(tt) = self.tt_move {
+                        if let Some(idx) = self.moves.iter().position(|m| m == tt) {
+                            self.scores[idx] = i32::MIN; // Mark as yielded
+                        }
+                        return Some(tt);
+                    }
+                }
+                1 => { // Score captures
+                    for i in 0..self.moves.len() {
+                        let m = self.moves.as_slice()[i];
+                        if self.scores[i] != i32::MIN && (m.is_capture() || m.is_promotion()) {
+                            self.scores[i] = score_move(
+                                self.board, m, None, [None, None], None, history, self.color
+                            );
+                        }
+                    }
+                    self.phase = 2;
+                }
+                2 => { // Phase 2: Yield captures iteratively
+                    let mut best_score = -i32::MAX;
+                    let mut best_idx = None;
+                    
+                    for i in 0..self.moves.len() {
+                        let m = self.moves.as_slice()[i];
+                        if self.scores[i] != i32::MIN && (m.is_capture() || m.is_promotion()) {
+                            if self.scores[i] > best_score {
+                                best_score = self.scores[i];
+                                best_idx = Some(i);
+                            }
+                        }
+                    }
+                    
+                    if let Some(idx) = best_idx {
+                        self.scores[idx] = i32::MIN; // Mark as yielded
+                        return Some(self.moves.as_slice()[idx]);
+                    } else {
+                        self.phase = 3;
+                    }
+                }
+                3 => { // Phase 3: Yield killers
+                    while self.yielded_killers < 2 {
+                        let k = self.killers[self.yielded_killers];
+                        self.yielded_killers += 1;
+                        
+                        if let Some(killer) = k {
+                            if Some(killer) != self.tt_move {
+                                if let Some(idx) = self.moves.iter().position(|m| m == killer && !m.is_capture() && !m.is_promotion()) {
+                                    if self.scores[idx] != i32::MIN {
+                                        self.scores[idx] = i32::MIN; // Mark as yielded
+                                        return Some(killer);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    self.phase = 4;
+                }
+                4 => { // Score quiets
+                    for i in 0..self.moves.len() {
+                        let m = self.moves.as_slice()[i];
+                        if self.scores[i] != i32::MIN && !m.is_capture() && !m.is_promotion() {
+                            self.scores[i] = score_move(
+                                self.board, m, None, [None, None], self.counter_move, history, self.color
+                            );
+                        }
+                    }
+                    self.phase = 5;
+                }
+                5 => { // Phase 4: Yield quiets iteratively
+                    let mut best_score = -i32::MAX;
+                    let mut best_idx = None;
+                    
+                    for i in 0..self.moves.len() {
+                        let m = self.moves.as_slice()[i];
+                        if self.scores[i] != i32::MIN && !m.is_capture() && !m.is_promotion() {
+                            if self.scores[i] > best_score {
+                                best_score = self.scores[i];
+                                best_idx = Some(i);
+                            }
+                        }
+                    }
+                    
+                    if let Some(idx) = best_idx {
+                        self.scores[idx] = i32::MIN; // Mark as yielded
+                        return Some(self.moves.as_slice()[idx]);
+                    } else {
+                        return None; // Done
+                    }
+                }
+                _ => return None,
+            }
         }
     }
 }
 
-#[allow(dead_code)]
-pub fn order_moves_with_tt_and_killers(
-    board: &Board, 
-    moves: &mut [Move], 
-    tt_move: Option<Move>,
-    killers: [Option<Move>; 2],
-) {
-    let dummy_history = HistoryTable::new();
-    order_moves_full(board, moves, tt_move, killers, None, &dummy_history, Color::White);
+pub struct CapturePicker {
+    moves: MoveList,
+    scores: [i32; 256],
 }
 
-#[allow(dead_code)]
-pub fn order_captures(board: &Board, moves: &mut [Move]) {
-    let mut scores: [i32; 256] = [0; 256];
-    let count = moves.len().min(256);
-    
-    for i in 0..count {
-        scores[i] = mvv_lva_score(board, moves[i]);
+impl CapturePicker {
+    pub fn new(board: &Board, moves: MoveList) -> Self {
+        let mut scores = [0; 256];
+        for i in 0..moves.len() {
+            scores[i] = mvv_lva_score(board, moves.as_slice()[i]);
+        }
+        Self { moves, scores }
     }
-    
-    for i in 0..count {
-        let mut best_idx = i;
-        let mut best_score = scores[i];
-        
-        for j in (i + 1)..count {
-            if scores[j] > best_score {
-                best_score = scores[j];
-                best_idx = j;
+
+    pub fn next(&mut self) -> Option<Move> {
+        let mut best_score = -i32::MAX;
+        let mut best_idx = None;
+        for i in 0..self.moves.len() {
+            if self.scores[i] != i32::MIN {
+                if self.scores[i] > best_score {
+                    best_score = self.scores[i];
+                    best_idx = Some(i);
+                }
             }
         }
-        
-        if best_idx != i {
-            moves.swap(i, best_idx);
-            scores.swap(i, best_idx);
+        if let Some(idx) = best_idx {
+            self.scores[idx] = i32::MIN; // Mark as yielded
+            Some(self.moves.as_slice()[idx])
+        } else {
+            None
         }
     }
 }

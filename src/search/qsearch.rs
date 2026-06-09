@@ -109,7 +109,7 @@ pub fn quiescence<NT: NodeType>(
     // Generate only captures
     #[cfg(debug_assertions)]
     let t_gen = std::time::Instant::now();
-    let mut moves = board.generate_captures();
+    let moves = board.generate_captures();
     #[cfg(debug_assertions)]
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
@@ -122,16 +122,12 @@ pub fn quiescence<NT: NodeType>(
         };
     }
 
-    #[cfg(debug_assertions)]
-    let t_order = std::time::Instant::now();
-    ordering::order_captures(board, moves.as_slice_mut());
-    #[cfg(debug_assertions)]
-    searcher.add_order_time(t_order.elapsed().as_nanos() as u64);
+    let mut move_picker = ordering::CapturePicker::new(board, moves);
 
     let mut best_score = stand_pat;
     let mut pv: PV = smallvec![];
 
-    for m in moves.iter() {
+    while let Some(m) = move_picker.next() {
         if searcher.should_stop() {
             break;
         }
