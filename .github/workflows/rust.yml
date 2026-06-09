@@ -17,10 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code with submodules
+    - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
     
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -72,10 +70,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     
     steps:
-    - name: Checkout code with submodules
+    - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
     
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable

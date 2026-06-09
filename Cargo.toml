@@ -12,3 +12,20 @@ movegen = { path = "ferrum-movegen", package = "ferrum-movegen" }
 nnue = { path = "ferrum-nnue" }
 binread = "2"
 smallvec = "1.13"
+
+[workspace]
+members = [
+    "ferrum-movegen",
+    "ferrum-nnue"
+]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+debug = false
+strip = true
+
+[profile.release.build-override]
+opt-level = 3

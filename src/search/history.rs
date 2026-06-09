@@ -39,14 +39,14 @@ impl HistoryTable {
         // Gravity formula: prevents scores from growing unbounded
         // new_score = old_score + bonus - (old_score * |bonus| / max)
         let old = self.table[c][from][to];
-        let max = 16384;
-        let clamped_bonus = bonus.clamp(-max, max);
+        let max = 32768; // Increased from 16384
+        let clamped_bonus = bonus.clamp(-400, 400); // Limit individual update impact
         self.table[c][from][to] = old + clamped_bonus - old * clamped_bonus.abs() / max;
     }
 
     /// Apply bonus to move that caused cutoff, penalty to other quiet moves
     pub fn update_on_cutoff(&mut self, color: Color, best_move: Move, depth: i32, other_quiets: &[Move]) {
-        let bonus = depth * depth;
+        let bonus = (depth * depth).min(400);
         
         // Bonus for the move that caused cutoff
         self.update(color, best_move, bonus);

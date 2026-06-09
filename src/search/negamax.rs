@@ -166,6 +166,15 @@ pub fn search<NT: NodeType>(
 
     let in_check = board.in_check();
 
+    // === Internal Iterative Deepening (IID) / Reductions (IIR) ===
+    // If we have no TT move, search shallower or reduce current depth
+    let mut iir_reduction = 0;
+    if tt_move.is_none() && depth.raw() >= 4 {
+        iir_reduction = 1;
+    }
+    
+    let adjusted_depth = Depth::new((depth.raw() - iir_reduction).max(0));
+
     // === Reverse Futility Pruning (RFP) ===
     // If we are way ahead, we can prune without searching
     // Distinct from standard Futility Pruning which prunes *moves*
@@ -173,7 +182,7 @@ pub fn search<NT: NodeType>(
     let pawn_hash = board.pawn_hash();
     let color = board.turn();
     
-    if !in_check && depth.raw() <= 7 {
+    if !in_check && adjusted_depth.raw() <= 7 {
         #[cfg(debug_assertions)]
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
@@ -187,8 +196,8 @@ pub fn search<NT: NodeType>(
         let eval = raw_eval + Score::cp(correction / 4);
         static_eval = Some(eval);
 
-        // RFP Margin: 90 * depth (tuned)
-        let margin = Score::cp(90 * depth.raw() as i32);
+        // RFP Margin: 100 * depth (was 90 * depth)
+        let margin = Score::cp(100 * adjusted_depth.raw() as i32);
         
         if eval - margin >= beta {
              return SearchResult {
@@ -203,9 +212,9 @@ pub fn search<NT: NodeType>(
     // === ProbCut ===
     // Only on non-PV nodes (zero-window)
     const PROBCUT_MARGIN: i32 = 100;
-    if !NT::PV && depth.raw() >= 5 && !in_check && beta.raw().abs() < (SCORE_MATE - 1000) {
+    if !NT::PV && adjusted_depth.raw() >= 5 && !in_check && beta.raw().abs() < (SCORE_MATE - 1000) {
         let probe_beta = beta + Score::cp(PROBCUT_MARGIN);
-        let probe_depth = Depth::new(depth.raw() - 4);
+        let probe_depth = Depth::new(adjusted_depth.raw() - 4);
 
         let result = search::<OffPV>(
             searcher,
@@ -231,7 +240,7 @@ pub fn search<NT: NodeType>(
     // === Null Move Pruning ===
     // Skip if: in check, depth too low, PV node, or only king+pawns
     // Note: we don't do NMP on PV nodes or at root
-    if !NT::PV && !in_check && depth.raw() >= 3 {
+    if !NT::PV && !in_check && adjusted_depth.raw() >= 3 {
         // Don't do null move in pure pawn endgames (zugzwang risk)
         let dominated_by_pawns = (board.piece_bb(Piece::Knight)
             | board.piece_bb(Piece::Bishop)
@@ -240,7 +249,7 @@ pub fn search<NT: NodeType>(
         
         if !dominated_by_pawns {
             // Reduction: R=5 if depth > 6, else R=4 (aggressive)
-            let r = if depth.raw() > 6 { 5 } else { 4 };
+            let r = if adjusted_depth.raw() > 6 { 5 } else { 4 };
             
             // Create a null move board (pass the turn)
             let null_board = board.make_null_move();
@@ -252,7 +261,7 @@ pub fn search<NT: NodeType>(
                 searcher,
                 &mut null_evaluator,
                 &null_board,
-                Depth::new((depth.raw() - 1 - r).max(0)),
+                Depth::new((adjusted_depth.raw() - 1 - r).max(0)),
                 ply.next(),
                 -beta,
                 -beta + Score::cp(1),
@@ -271,25 +280,6 @@ pub fn search<NT: NodeType>(
                 };
             }
         }
-    }
-
-    // === Internal Iterative Deepening (IID) ===
-    // If we are at a PV node and have no TT move, search shallower to find one
-    if NT::PV && tt_move.is_none() && depth.raw() >= 6 {
-        let iid_depth = Depth::new(depth.raw() - 2);
-        
-        let result = search::<NT>(
-            searcher,
-            evaluator,
-            board,
-            iid_depth,
-            ply,
-            alpha,
-            beta,
-            prev_move,
-        );
-        
-        tt_move = result.best_move;
     }
 
     // Generate legal moves
@@ -315,7 +305,7 @@ pub fn search<NT: NodeType>(
     }
 
     // Quiescence search at depth 0
-    if depth.is_qs() {
+    if adjusted_depth.is_qs() {
         return qsearch::quiescence::<NT>(searcher, evaluator, board, ply, 0, alpha, beta);
     }
 
@@ -367,6 +357,10 @@ pub fn search<NT: NodeType>(
     let mut quiets_count = 0usize;
 
     for (move_idx, m) in moves.iter().enumerate() {
+        if NT::ROOT {
+            searcher.report_currmove(m, move_idx + 1);
+        }
+
         let new_board = board.make_move_new(m);
 
         // Prefetch TT entry for next position
@@ -382,9 +376,9 @@ pub fn search<NT: NodeType>(
         // === Late Move Pruning (LMP) ===
         // If we have searched enough quiet moves at low depth, stop searching the rest.
         // This relies on move ordering to put good moves early.
-        if is_quiet && depth.raw() <= 7 && !in_check {
+        if is_quiet && adjusted_depth.raw() <= 7 && !in_check {
             // Formula: LMS = 3 + depth^2 (e.g., d1=4, d2=7, d3=12...)
-            let lmp_count = (3 + depth.raw() * depth.raw()) as usize;
+            let lmp_count = (3 + adjusted_depth.raw() * adjusted_depth.raw()) as usize;
             if quiets_count > lmp_count {
                 continue;
             }
@@ -398,37 +392,47 @@ pub fn search<NT: NodeType>(
         let extension = if in_check { 1 } else { 0 };
         
         let search_depth = if move_idx >= 2 
-            && depth.raw() >= 3 
-            && is_quiet 
+            && adjusted_depth.raw() >= 3 
             && !in_check 
             && !gives_check
             && !is_killer
         {
             // Logarithmic reduction formula
-            let d = (depth.raw() as f32).ln();
+            let d = (adjusted_depth.raw() as f32).ln();
             let m_idx = ((move_idx + 1) as f32).ln();
-            let reduction = ((d * m_idx) / 1.9) as i32;
-            let reduction = reduction.min(depth.raw() - 2).max(1);
+            let mut reduction = (0.6 + d * m_idx / 1.6) as i32;
+            
+            // Reduce more for quiet moves
+            if is_quiet {
+                reduction += 1;
+            }
+
+            // History-based LMR adjustment: reduce more for moves with bad history
+            let history_score = searcher.history.get(color, m);
+            if history_score < -15000 {
+                reduction += 1;
+            }
+
+            let reduction = reduction.min(adjusted_depth.raw() - 1).max(1);
             reduced = true;
-            Depth::new((depth.raw() - 1 - reduction + extension).max(1))
+            Depth::new((adjusted_depth.raw() - 1 - reduction + extension).max(1))
         } else {
-            Depth::new((depth.raw() - 1 + extension).max(0))
+            Depth::new((adjusted_depth.raw() - 1 + extension).max(0))
         };
 
         // === History Pruning ===
         // Prune quiet moves that have historically failed significantly
-        if depth.raw() < 4 && is_quiet && !in_check && !gives_check && !is_killer && move_idx > 0 {
-            // Threshold: -3000 * depth (e.g. -3000 at d1, -6000 at d2)
-            let threshold = -3000 * depth.raw() as i32;
+        if adjusted_depth.raw() < 6 && is_quiet && !in_check && !gives_check && !is_killer && move_idx > 0 {
+            // More aggressive pruning threshold: -2000 * depth
+            let threshold = -2000 * adjusted_depth.raw() as i32;
             if searcher.history.get(color, m) < threshold {
-                 // Track for history stats if needed, or just prune
                 continue;
             }
         }
 
         // === SEE Pruning for Quiet Moves ===
         // Prune quiet moves that are obvious blunders (e.g. putting a piece en prise)
-        if depth.raw() <= 4 && is_quiet && !in_check && !gives_check && move_idx > 0 {
+        if adjusted_depth.raw() <= 4 && is_quiet && !in_check && !gives_check && move_idx > 0 {
              // If move loses material (at least 50cp), prune it
              // This uses SEE to see if the move is "safe"
              if !see::see_ge(board, m, -50) {
@@ -440,8 +444,8 @@ pub fn search<NT: NodeType>(
         // At shallow depths, skip quiet moves if eval + margin is below alpha
         if let Some(se) = static_eval {
             if is_quiet && !gives_check && move_idx > 0 {
-                // Tuned margin: 90 * depth (was 75 * depth)
-                let margin = 90 * depth.raw();
+                // More aggressive margin: 120 * depth (was 90)
+                let margin = 120 * adjusted_depth.raw();
                 if se.raw() + margin < alpha.raw() {
                     // Track for history
                     if quiets_count < 64 {
@@ -450,6 +454,16 @@ pub fn search<NT: NodeType>(
                     }
                     continue;  // Prune this move
                 }
+            }
+        }
+
+        // === SEE Pruning for Captures ===
+        // Prune captures that are obviously losing at shallow depths
+        if adjusted_depth.raw() <= 5 && is_capture && move_idx > 0 {
+            // Threshold becomes more lenient with depth: -100 * depth
+            let threshold = -100 * adjusted_depth.raw() as i32;
+            if !see::see_ge(board, m, threshold) {
+                continue;
             }
         }
 

@@ -9,8 +9,7 @@
 //!
 //! Used as NNUE fallback and works seamlessly across all phases.
 
-use crate::types::{Board, Score, Color, Piece, Bitboard};
-use movegen::Square;
+use crate::types::{Board, Score, Color, Piece};
 
 // ============================================================================
 // PACKED SCORE TYPE

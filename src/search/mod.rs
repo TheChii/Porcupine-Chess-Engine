@@ -373,7 +373,7 @@ impl Searcher {
     /// Internal search loop (called by main and helper threads)
     fn search_internal(&mut self, _limits: SearchLimits, max_depth: Depth) -> SearchResult {
         let mut best_score = Score::neg_infinity();
-        const INITIAL_WINDOW: i32 = 25;
+        const INITIAL_WINDOW: i32 = 15;
         
         // Initialize evaluator at root
         let local_nnue = self.nnue.clone();
@@ -482,16 +482,14 @@ impl Searcher {
                     .join(" ");
                     
                 println!(
-                    "info depth {} seldepth {} score {} nodes {} qnodes {} evals {} nps {} time {} hashfull {} pv {}",
+                    "info depth {} seldepth {} multipv 1 score {} nodes {} nps {} hashfull {} time {} pv {}",
                     depth,
                     self.stats.seldepth.raw(),
                     best_score,
                     self.shared.total_nodes.load(Ordering::Relaxed),
-                    self.stats.qnodes,
-                    self.stats.eval_calls,
                     self.stats.nps(),
-                    self.stats.time_ms,
                     self.stats.hashfull,
+                    self.stats.time_ms,
                     pv_str
                 );
             }
@@ -505,10 +503,18 @@ impl Searcher {
         }
     }
 
-    /// Increment node counter
+    /// Increment node counter and periodically report current move (at root)
     #[inline]
     pub fn inc_nodes(&mut self) {
         self.stats.nodes += 1;
+    }
+
+    /// Report current move to UCI (called only at root)
+    pub fn report_currmove(&mut self, mv: Move, move_num: usize) {
+        // Report every 512 nodes to avoid spamming output
+        if !self.is_helper && self.stats.nodes & 511 == 0 {
+            println!("info currmove {} currmovenumber {}", mv, move_num);
+        }
     }
 
     /// Update selective depth

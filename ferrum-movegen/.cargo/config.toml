@@ -1,0 +1,11 @@
+# Build with native CPU optimizations
+# This enables BMI2 (PEXT/PDEP), POPCNT, LZCNT, etc.
+
+[build]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=native"]

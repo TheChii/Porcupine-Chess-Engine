@@ -1,6 +1,0 @@
-[submodule "ferrum-movegen"]
-	path = ferrum-movegen
-	url = https://github.com/TheChii/ferrum-movegen
-[submodule "ferrum-nnue"]
-	path = ferrum-nnue
-	url = https://github.com/TheChii/ferrum-nnue

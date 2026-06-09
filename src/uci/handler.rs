@@ -295,7 +295,7 @@ impl UciHandler {
             .join(" ");
 
         self.send(&format!(
-            "info depth {} seldepth {} score {} nodes {} nps {} time {} pv {}",
+            "info depth {} seldepth {} multipv 1 score {} nodes {} nps {} time {} pv {}",
             stats.depth.raw(),
             stats.seldepth.raw(),
             result.score,

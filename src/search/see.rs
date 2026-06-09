@@ -61,7 +61,6 @@ fn get_piece_attacks(board: &Board, target: movegen::Square, piece: Piece, side:
 /// Static Exchange Evaluation
 /// Returns the material balance after a capture sequence.
 /// Uses fixed-size array to avoid allocations.
-#[inline]
 /// Static Exchange Evaluation with known victim
 /// Returns the material balance after a capture sequence.
 /// `victim` should be the piece at the target square (None for En Passant).
