@@ -3,10 +3,12 @@
 //! Contains SIMD-optimized dense layer implementations.
 
 use crate::ops::*;
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+use std::ops::AddAssign;
 
 use bytemuck::Zeroable;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use std::arch::x86_64::*;
 
 ///A dense layer.

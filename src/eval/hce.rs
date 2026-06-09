@@ -450,7 +450,7 @@ fn eval_passed_pawns<const IS_WHITE: bool>(board: &Board) -> S {
 #[inline(always)]
 fn endgame_bonuses(board: &Board, phase: i32) -> S {
     // Only compute if actually in endgame-ish position
-    let scale = (phase - 128); // 0-128 range
+    let scale = phase - 128; // 0-128 range
     
     // Determine if there's a material imbalance
     let material = material_balance(board);

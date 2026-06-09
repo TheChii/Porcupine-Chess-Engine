@@ -3,7 +3,7 @@
 //! Contains SIMD-optimized implementations for AVX2-capable CPUs,
 //! with automatic fallback to scalar operations.
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use std::arch::x86_64::*;
 
 pub trait VecAdd<Rhs = Self> {
@@ -121,7 +121,7 @@ impl<const SIZE: usize> Dot for [i8; SIZE] {
 
     #[inline]
     fn dot(&self, other: &Self) -> Self::Output {
-        let mut sum: i32 = 0;
+        let mut sum: i32;
         let mut i = 0;
         
         unsafe {
