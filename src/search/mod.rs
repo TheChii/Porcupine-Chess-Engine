@@ -98,6 +98,8 @@ pub struct SharedState {
     pub tt: TranspositionTable,
     /// Global stop flag
     pub stop: AtomicBool,
+    /// Ponder hit flag
+    pub ponderhit: AtomicBool,
     /// Total nodes searched (sum across all threads)
     pub total_nodes: AtomicU64,
 }
@@ -107,6 +109,7 @@ impl SharedState {
         Self {
             tt: TranspositionTable::new(hash_size_mb),
             stop: AtomicBool::new(false),
+            ponderhit: AtomicBool::new(false),
             total_nodes: AtomicU64::new(0),
         }
     }
@@ -246,6 +249,11 @@ impl Searcher {
         self.shared.stop.store(true, Ordering::Relaxed);
     }
 
+    /// Switch from ponder search to normal search
+    pub fn ponderhit(&mut self) {
+        self.shared.ponderhit.store(true, Ordering::Relaxed);
+    }
+
     /// Check if search should stop (hard time limit, nodes limit, etc.)
     pub fn should_stop(&self) -> bool {
         // Check global stop flag
@@ -255,18 +263,27 @@ impl Searcher {
         
         // Check time periodically (every 512 nodes for stricter timing)
         // More frequent checks help prevent time losses in movetime mode
-        if self.stats.nodes & 511 == 0
-            && self.time_manager.hard_limit_exceeded() {
+        if self.stats.nodes & 511 == 0 {
+            // Check if hard limit is exceeded
+            // If we've received a ponderhit, we also need to respect the hard limit
+            // even if time_manager thinks we're still in ponder mode.
+            if self.time_manager.hard_limit_exceeded() || 
+               (self.shared.ponderhit.load(Ordering::Relaxed) && self.time_manager.elapsed() >= self.time_manager.hard_limit_ms()) {
                 return true;
             }
+        }
         
         false
     }
     
     /// Check if we can start a new iteration (soft time limit)
-    fn can_start_new_iteration(&self) -> bool {
+    fn can_start_new_iteration(&mut self) -> bool {
         if self.shared.stop.load(Ordering::Relaxed) {
             return false;
+        }
+
+        if self.shared.ponderhit.load(Ordering::Relaxed) {
+            self.time_manager.ponderhit();
         }
         
         // Check soft limit
@@ -315,6 +332,7 @@ impl Searcher {
     pub fn search(&mut self, limits: SearchLimits) -> SearchResult {
         // Reset state
         self.shared.stop.store(false, Ordering::Relaxed);
+        self.shared.ponderhit.store(false, Ordering::Relaxed);
         self.shared.total_nodes.store(0, Ordering::Relaxed);
         self.stats = SearchStats::default();
         self.best_move = None;
@@ -427,6 +445,10 @@ impl Searcher {
 
                 if self.should_stop() {
                     break;
+                }
+
+                if self.shared.ponderhit.load(Ordering::Relaxed) {
+                    self.time_manager.ponderhit();
                 }
 
                 // Check if score is within window

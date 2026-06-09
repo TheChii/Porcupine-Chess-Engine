@@ -12,8 +12,12 @@ use std::io::{self, BufRead, Write};
 pub struct UciHandler {
     /// Current board position
     board: Board,
-    /// Search engine
-    searcher: Searcher,
+    /// Search engine (None when searching)
+    searcher: Option<Searcher>,
+    /// Receiver for completed searcher
+    search_rx: Option<std::sync::mpsc::Receiver<Searcher>>,
+    /// Shared state
+    shared: std::sync::Arc<crate::search::SharedState>,
     /// Opening book
     book: Option<PolyglotBook>,
     /// Use opening book
@@ -50,14 +54,14 @@ impl UciHandler {
             }
         }
 
-        // Standard UCI: opening book is disabled by default
-        // GUI controls the opening book externally, or user can enable OwnBook option
-        // and set BookPath to load a polyglot book manually
+        let shared = searcher.shared.clone();
 
         Self {
             board: Board::default(),
-            searcher,
-            book: None, // No automatic book loading
+            searcher: Some(searcher),
+            search_rx: None,
+            shared,
+            book: None,
             use_own_book: false, // Disabled by default (standard UCI behavior)
             book_path: String::new(), // No default path
             debug: false,
@@ -150,7 +154,9 @@ impl UciHandler {
             "hash" => {
                 if let Some(v) = value {
                     if let Ok(mb) = v.parse::<usize>() {
-                        self.searcher.set_hash_size(mb);
+                        self.wait_for_search();
+                        self.searcher.as_mut().unwrap().set_hash_size(mb);
+                        self.shared = self.searcher.as_ref().unwrap().shared.clone();
                         if self.debug {
                             eprintln!("Hash set to {} MB", mb);
                         }
@@ -160,7 +166,8 @@ impl UciHandler {
             "threads" => {
                 if let Some(v) = value {
                     if let Ok(n) = v.parse::<usize>() {
-                        self.searcher.set_threads(n);
+                        self.wait_for_search();
+                        self.searcher.as_mut().unwrap().set_threads(n);
                     }
                 }
             }
@@ -232,17 +239,27 @@ impl UciHandler {
     }
 
     fn cmd_ucinewgame(&mut self) {
+        self.wait_for_search();
+        let mut searcher = self.searcher.take().unwrap();
         // Preserve NNUE model before resetting
-        let nnue_model = self.searcher.nnue.take();
+        let nnue_model = searcher.nnue.take();
+        let size_mb = searcher.shared.tt.size_mb();
+        let threads = searcher.threads();
         
         self.board = Board::default();
-        self.searcher = Searcher::new();
+        let mut new_searcher = Searcher::new();
         
         // Restore NNUE model
-        self.searcher.nnue = nnue_model;
+        new_searcher.nnue = nnue_model;
+        new_searcher.set_hash_size(size_mb);
+        new_searcher.set_threads(threads);
+        
+        self.shared = new_searcher.shared.clone();
+        self.searcher = Some(new_searcher);
     }
 
     fn cmd_position(&mut self, fen: Option<&str>, moves: &[String]) {
+        self.wait_for_search();
         // Set up the position
         self.board = match fen {
             Some(f) => Board::from_fen(f).unwrap_or_default(),
@@ -264,10 +281,12 @@ impl UciHandler {
         }
         
         // Store history in searcher for repetition detection
-        self.searcher.set_position_with_history(self.board, history);
+        self.searcher.as_mut().unwrap().set_position_with_history(self.board.clone(), history);
     }
 
     fn cmd_go(&mut self, params: SearchParams) {
+        self.wait_for_search();
+
         // Try opening book first (unless infinite or analysis mode)
         if self.use_own_book && !params.infinite && params.searchmoves.is_empty() {
             if let Some(ref book) = self.book {
@@ -283,44 +302,62 @@ impl UciHandler {
         let limits = SearchLimits::from_params(&params)
             .with_move_overhead(self.move_overhead);
         
-        // Set position and run search
-        self.searcher.set_position(self.board);
-        let result = self.searcher.search(limits);
+        let mut searcher = self.searcher.take().unwrap();
+        searcher.set_position(self.board.clone());
+        
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.search_rx = Some(rx);
 
-        // Send info
-        let stats = result.stats;
-        let pv_str: String = result.pv.iter()
-            .map(|m| format_move(*m))
-            .collect::<Vec<_>>()
-            .join(" ");
+        std::thread::spawn(move || {
+            let result = searcher.search(limits);
 
-        self.send(&format!(
-            "info depth {} seldepth {} multipv 1 score {} nodes {} nps {} time {} pv {}",
-            stats.depth.raw(),
-            stats.seldepth.raw(),
-            result.score,
-            stats.nodes,
-            stats.nps(),
-            stats.time_ms,
-            pv_str
-        ));
+            // Send info
+            let stats = result.stats;
+            let pv_str: String = result.pv.iter()
+                .map(|m| format_move(*m))
+                .collect::<Vec<_>>()
+                .join(" ");
 
-        // Send best move
-        match result.best_move {
-            Some(m) => self.send(&format!("bestmove {}", format_move(m))),
-            None => self.send("bestmove 0000"),
+            println!(
+                "info depth {} seldepth {} multipv 1 score {} nodes {} nps {} time {} pv {}",
+                stats.depth.raw(),
+                stats.seldepth.raw(),
+                result.score,
+                stats.nodes,
+                stats.nps(),
+                stats.time_ms,
+                pv_str
+            );
+
+            // Send best move
+            match result.best_move {
+                Some(m) => println!("bestmove {}", format_move(m)),
+                None => println!("bestmove 0000"),
+            }
+            
+            // Send searcher back
+            let _ = tx.send(searcher);
+        });
+    }
+
+    fn wait_for_search(&mut self) {
+        if let Some(rx) = self.search_rx.take() {
+            if let Ok(searcher) = rx.recv() {
+                self.searcher = Some(searcher);
+            }
         }
     }
 
     fn cmd_stop(&mut self) {
-        self.searcher.stop();
+        self.shared.stop.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn cmd_ponderhit(&mut self) {
-        // TODO: Switch from pondering to normal search
+        self.shared.ponderhit.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn cmd_quit(&mut self) {
+        self.shared.stop.store(true, std::sync::atomic::Ordering::Relaxed);
         self.quit = true;
     }
 

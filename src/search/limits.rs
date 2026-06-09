@@ -32,6 +32,8 @@ pub struct SearchLimits {
     pub movestogo: Option<u32>,
     /// Infinite search
     pub infinite: bool,
+    /// Ponder mode
+    pub ponder: bool,
     /// Move overhead (safety buffer for network/GUI delay)
     pub move_overhead: u64,
 }
@@ -66,6 +68,7 @@ impl SearchLimits {
             binc: params.binc,
             movestogo: params.movestogo,
             infinite: params.infinite,
+            ponder: params.ponder,
             move_overhead: Self::DEFAULT_MOVE_OVERHEAD,
         }
     }
@@ -88,6 +91,8 @@ pub struct TimeManager {
     _move_overhead: u64,
     /// Is this an infinite search?
     infinite: bool,
+    /// Are we currently pondering?
+    ponder: bool,
     /// Start time of search
     start_time: Option<Instant>,
 }
@@ -99,6 +104,7 @@ impl TimeManager {
             hard_limit: u64::MAX,
             _move_overhead: 10,
             infinite: true,
+            ponder: false,
             start_time: Some(Instant::now()),
         }
     }
@@ -125,6 +131,7 @@ impl TimeManager {
                 hard_limit: hard.max(1),
                 _move_overhead: move_overhead,
                 infinite: false,
+                ponder: limits.ponder,
                 start_time: Some(Instant::now()),
             };
         }
@@ -191,6 +198,7 @@ impl TimeManager {
                 hard_limit: hard,
                 _move_overhead: move_overhead,
                 infinite: false,
+                ponder: limits.ponder,
                 start_time: Some(Instant::now()),
             };
         }
@@ -201,6 +209,7 @@ impl TimeManager {
             hard_limit: u64::MAX,
             _move_overhead: move_overhead,
             infinite: true,
+            ponder: limits.ponder,
             start_time: Some(Instant::now()),
         }
     }
@@ -219,7 +228,7 @@ impl TimeManager {
 
     /// Check if we should stop searching (hard limit - for mid-search check)
     pub fn should_stop(&self) -> bool {
-        if self.infinite {
+        if self.infinite || self.ponder {
             return false;
         }
         self.elapsed() >= self.hard_limit
@@ -227,7 +236,7 @@ impl TimeManager {
 
     /// Check if we can start a new iteration (soft limit)
     pub fn can_start_iteration(&self) -> bool {
-        if self.infinite {
+        if self.infinite || self.ponder {
             return true;
         }
         // Start new iteration if we have time remaining below soft limit
@@ -237,7 +246,7 @@ impl TimeManager {
 
     /// Check if we've exceeded soft limit (use between iterations)
     pub fn soft_limit_exceeded(&self) -> bool {
-        if self.infinite {
+        if self.infinite || self.ponder {
             return false;
         }
         self.elapsed() >= self.soft_limit
@@ -245,7 +254,7 @@ impl TimeManager {
 
     /// Hard stop check (absolute limit - never exceed)
     pub fn hard_limit_exceeded(&self) -> bool {
-        if self.infinite {
+        if self.infinite || self.ponder {
             return false;
         }
         self.elapsed() >= self.hard_limit
@@ -274,7 +283,14 @@ impl TimeManager {
     
     /// Check if this is an infinite search
     pub fn is_infinite(&self) -> bool {
-        self.infinite
+        self.infinite || self.ponder
+    }
+
+    /// Switch from ponder mode to normal search mode
+    pub fn ponderhit(&mut self) {
+        self.ponder = false;
+        // The time elapsed since the search started continues to count 
+        // toward the calculated soft_limit and hard_limit.
     }
 }
 
