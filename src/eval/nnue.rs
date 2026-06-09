@@ -74,7 +74,7 @@ pub fn create_state<'m>(model: &'m SfHalfKpModel, board: &Board) -> SfHalfKpStat
 fn find_king_square(board: &Board, color: Color) -> Square {
     let king_bb = board.piece_bb(Piece::King) & board.color_bb(color);
     // There should always be exactly one king
-    for sq in king_bb {
+    if let Some(sq) = king_bb.into_iter().next() {
         return sq;
     }
     // Fallback (should never happen in valid position)

@@ -104,7 +104,7 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
     // Simulate the exchange
     loop {
         if let Some((sq, piece)) = get_lva(board, to, side, occupied) {
-            occupied = occupied ^ Bitboard::from_square(sq);
+            occupied ^= Bitboard::from_square(sq);
             gains[depth] = last_value;
             last_value = see_piece_value(piece);
             depth += 1;

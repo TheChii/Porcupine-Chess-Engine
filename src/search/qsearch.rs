@@ -131,7 +131,7 @@ pub fn quiescence<NT: NodeType>(
     let mut best_score = stand_pat;
     let mut pv: PV = smallvec![];
 
-    for (_, m) in moves.iter().enumerate() {
+    for m in moves.iter() {
         if searcher.should_stop() {
             break;
         }
@@ -143,11 +143,10 @@ pub fn quiescence<NT: NodeType>(
         // === Delta Pruning (Per-Move) ===
         // If this capture + safety margin can't raise alpha, skip it
         // Skip this check for promotions (they gain material)
-        if !in_check && !m.is_promotion() {
-            if stand_pat.raw() + captured_value + DELTA_SAFETY < alpha.raw() {
+        if !in_check && !m.is_promotion()
+            && stand_pat.raw() + captured_value + DELTA_SAFETY < alpha.raw() {
                 continue;
             }
-        }
 
         // === SEE Pruning ===
         // Skip captures that lose material according to SEE

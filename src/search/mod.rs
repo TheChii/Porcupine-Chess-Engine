@@ -255,11 +255,10 @@ impl Searcher {
         
         // Check time periodically (every 512 nodes for stricter timing)
         // More frequent checks help prevent time losses in movetime mode
-        if self.stats.nodes & 511 == 0 {
-            if self.time_manager.hard_limit_exceeded() {
+        if self.stats.nodes & 511 == 0
+            && self.time_manager.hard_limit_exceeded() {
                 return true;
             }
-        }
         
         false
     }
@@ -293,7 +292,7 @@ impl Searcher {
     /// Create a helper searcher that shares TT but has own tables
     fn create_helper(&self) -> Self {
         Self {
-            board: self.board.clone(),
+            board: self.board,
             shared: Arc::clone(&self.shared),
             killers: KillerTable::new(),
             history: HistoryTable::new(),
@@ -475,7 +474,7 @@ impl Searcher {
             // Print info for this depth (main thread only)
             if !self.is_helper && !self.should_stop() {
                 self.stats.print_profiling();
-                self.stats.time_search = (self.time_manager.elapsed() as u64) * 1_000_000;
+                self.stats.time_search = self.time_manager.elapsed() * 1_000_000;
                 let pv_str: String = self.pv.iter()
                     .map(|m| m.to_string())
                     .collect::<Vec<_>>()

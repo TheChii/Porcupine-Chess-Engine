@@ -21,7 +21,7 @@ pub enum SearchEvaluator<'a> {
 impl<'a> SearchEvaluator<'a> {
     pub fn new(model: Option<&'a nnue::Model>, board: &Board) -> Self {
         match model {
-            Some(m) => Self::Nnue(NnueEvaluator::new(&**m, board)),
+            Some(m) => Self::Nnue(NnueEvaluator::new(m, board)),
             None => Self::Hce,
         }
     }
@@ -56,7 +56,7 @@ impl<'a> SearchEvaluator<'a> {
 pub fn evaluate(board: &Board, model: Option<&nnue::Model>) -> Score {
     if let Some(m) = model {
         // Use NNUE evaluation
-        nnue::evaluate_scratch(&**m, board)
+        nnue::evaluate_scratch(m, board)
     } else {
         // Fallback to HCE
         hce::evaluate(board)

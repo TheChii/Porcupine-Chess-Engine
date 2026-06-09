@@ -272,7 +272,7 @@ impl UciHandler {
         if self.use_own_book && !params.infinite && params.searchmoves.is_empty() {
             if let Some(ref book) = self.book {
                 if let Some(book_move) = book.probe_move(&self.board) {
-                    self.send(&format!("info string book move"));
+                    self.send(&"info string book move".to_string());
                     self.send(&format!("bestmove {}", format_move(book_move)));
                     return;
                 }

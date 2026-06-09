@@ -353,7 +353,7 @@ pub fn evaluate(board: &Board) -> Score {
     
     // Add endgame-specific bonuses (scaled by phase)
     if phase > 128 {
-        score = score + endgame_bonuses(board, phase);
+        score += endgame_bonuses(board, phase);
     }
     
     // Taper between MG and EG
@@ -405,7 +405,7 @@ fn eval_side<const IS_WHITE: bool>(board: &Board) -> S {
     }
     
     // Passed pawn evaluation
-    score = score + eval_passed_pawns::<IS_WHITE>(board);
+    score += eval_passed_pawns::<IS_WHITE>(board);
     
     score
 }
@@ -450,7 +450,7 @@ fn eval_passed_pawns<const IS_WHITE: bool>(board: &Board) -> S {
 #[inline(always)]
 fn endgame_bonuses(board: &Board, phase: i32) -> S {
     // Only compute if actually in endgame-ish position
-    let scale = (phase - 128) as i32; // 0-128 range
+    let scale = (phase - 128); // 0-128 range
     
     // Determine if there's a material imbalance
     let material = material_balance(board);

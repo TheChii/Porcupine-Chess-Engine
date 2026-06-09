@@ -79,8 +79,8 @@ pub fn search<NT: NodeType>(
     }
 
     // Mate distance pruning
-    let mate_score = SCORE_MATE - ply.raw() as i32;
-    let mated_score = -SCORE_MATE + ply.raw() as i32;
+    let mate_score = SCORE_MATE - ply.raw();
+    let mated_score = -SCORE_MATE + ply.raw();
 
     if alpha.raw() < mated_score {
         alpha = Score(mated_score as i16);
@@ -197,7 +197,7 @@ pub fn search<NT: NodeType>(
         static_eval = Some(eval);
 
         // RFP Margin: 100 * depth (was 90 * depth)
-        let margin = Score::cp(100 * adjusted_depth.raw() as i32);
+        let margin = Score::cp(100 * adjusted_depth.raw());
         
         if eval - margin >= beta {
              return SearchResult {
@@ -339,7 +339,7 @@ pub fn search<NT: NodeType>(
     // Razoring - only on non-PV nodes
     if !NT::PV && depth.raw() <= 3 && !in_check {
         if let Some(eval) = static_eval {
-            let threshold = alpha - Score::cp(200 + depth.raw() as i32 * 60);
+            let threshold = alpha - Score::cp(200 + depth.raw() * 60);
             if eval < threshold {
                 let result = qsearch::quiescence::<OffPV>(searcher, evaluator, board, ply, 0, alpha, beta);
                  if result.score < alpha {
@@ -424,7 +424,7 @@ pub fn search<NT: NodeType>(
         // Prune quiet moves that have historically failed significantly
         if adjusted_depth.raw() < 6 && is_quiet && !in_check && !gives_check && !is_killer && move_idx > 0 {
             // More aggressive pruning threshold: -2000 * depth
-            let threshold = -2000 * adjusted_depth.raw() as i32;
+            let threshold = -2000 * adjusted_depth.raw();
             if searcher.history.get(color, m) < threshold {
                 continue;
             }
@@ -461,7 +461,7 @@ pub fn search<NT: NodeType>(
         // Prune captures that are obviously losing at shallow depths
         if adjusted_depth.raw() <= 5 && is_capture && move_idx > 0 {
             // Threshold becomes more lenient with depth: -100 * depth
-            let threshold = -100 * adjusted_depth.raw() as i32;
+            let threshold = -100 * adjusted_depth.raw();
             if !see::see_ge(board, m, threshold) {
                 continue;
             }
