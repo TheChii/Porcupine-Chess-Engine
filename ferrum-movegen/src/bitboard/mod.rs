@@ -3,15 +3,15 @@
 //! A bitboard is a 64-bit integer where each bit represents a square on the chess board.
 //! This representation enables efficient parallel operations on multiple squares.
 
+mod display;
 mod iter;
 mod ops;
-mod display;
 
 pub use iter::BitIterator;
 
+use crate::types::Square;
 use core::fmt;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, Shr};
-use crate::types::Square;
 
 /// A 64-bit bitboard representing squares on the chess board.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Hash)]
@@ -52,8 +52,8 @@ impl Bitboard {
     pub const NOT_FILE_GH: Bitboard = Bitboard(!0xC0C0C0C0C0C0C0C0);
 
     // Useful for castling
-    pub const BETWEEN_E1_G1: Bitboard = Bitboard(0x60);  // F1 | G1
-    pub const BETWEEN_E1_C1: Bitboard = Bitboard(0x0E);  // B1 | C1 | D1
+    pub const BETWEEN_E1_G1: Bitboard = Bitboard(0x60); // F1 | G1
+    pub const BETWEEN_E1_C1: Bitboard = Bitboard(0x0E); // B1 | C1 | D1
     pub const BETWEEN_E8_G8: Bitboard = Bitboard(0x6000000000000000);
     pub const BETWEEN_E8_C8: Bitboard = Bitboard(0x0E00000000000000);
 
@@ -390,7 +390,9 @@ mod tests {
     fn test_more_than_one() {
         assert!(!Bitboard::EMPTY.more_than_one());
         assert!(!Bitboard::from_square(Square::E4).more_than_one());
-        assert!((Bitboard::from_square(Square::E4) | Bitboard::from_square(Square::D4)).more_than_one());
+        assert!(
+            (Bitboard::from_square(Square::E4) | Bitboard::from_square(Square::D4)).more_than_one()
+        );
     }
 
     #[test]

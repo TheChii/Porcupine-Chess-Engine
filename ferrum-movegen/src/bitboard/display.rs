@@ -8,7 +8,7 @@ impl Bitboard {
     pub fn pretty_print(&self) -> String {
         let mut result = String::with_capacity(200);
         result.push_str("  +---+---+---+---+---+---+---+---+\n");
-        
+
         for rank in (0..8).rev() {
             result.push_str(&format!("{} |", rank + 1));
             for file in 0..8 {

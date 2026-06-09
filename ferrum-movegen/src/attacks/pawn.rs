@@ -15,24 +15,24 @@ pub fn pawn_attacks(color: Color, sq: Square) -> Bitboard {
 /// Generate all pawn attack tables at compile time.
 const fn generate_pawn_attacks() -> [[Bitboard; 64]; 2] {
     let mut attacks = [[Bitboard::EMPTY; 64]; 2];
-    
+
     let mut sq = 0u8;
     while sq < 64 {
         let bb = 1u64 << sq;
-        
+
         // White pawn attacks (northeast and northwest)
         let white_ne = (bb << 9) & !Bitboard::FILE_A.0;
         let white_nw = (bb << 7) & !Bitboard::FILE_H.0;
         attacks[0][sq as usize] = Bitboard(white_ne | white_nw);
-        
+
         // Black pawn attacks (southeast and southwest)
         let black_se = (bb >> 7) & !Bitboard::FILE_A.0;
         let black_sw = (bb >> 9) & !Bitboard::FILE_H.0;
         attacks[1][sq as usize] = Bitboard(black_se | black_sw);
-        
+
         sq += 1;
     }
-    
+
     attacks
 }
 

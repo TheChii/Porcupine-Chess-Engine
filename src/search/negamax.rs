@@ -9,12 +9,12 @@
 //! Uses Rust generics for compile-time node type specialization.
 //! See `node_types` module for `NodeType` trait and concrete types.
 
-use super::{Searcher, SearchStats, ordering, qsearch, see};
 use super::node_types::{NodeType, OffPV};
 use super::tt::BoundType;
-use crate::types::{Board, Move, Score, Depth, Ply, Piece, SCORE_MATE};
+use super::{ordering, qsearch, see, SearchStats, Searcher};
 use crate::eval::SearchEvaluator;
-use smallvec::{SmallVec, smallvec};
+use crate::types::{Board, Depth, Move, Piece, Ply, Score, SCORE_MATE};
+
 use std::sync::OnceLock;
 
 static LMR_TABLE: OnceLock<[[i32; 64]; 64]> = OnceLock::new();
@@ -32,21 +32,17 @@ fn get_lmr(depth: i32, move_idx: usize) -> i32 {
         }
         t
     });
-    
+
     let d = depth.min(63).max(0) as usize;
     let m = move_idx.min(63);
     table[d][m]
 }
-
-/// Type alias for PV storage - stack-allocated for typical depths
-pub type PV = SmallVec<[Move; 32]>;
 
 /// Result from a search
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     pub best_move: Option<Move>,
     pub score: Score,
-    pub pv: PV,
     pub stats: SearchStats,
 }
 
@@ -69,6 +65,9 @@ pub fn search<NT: NodeType>(
     searcher.inc_nodes();
     searcher.update_seldepth(ply);
 
+    let p = ply.raw() as usize;
+    searcher.pv_length[p] = 0;
+
     let hash = board.hash();
 
     // === Repetition Detection with Contempt ===
@@ -80,22 +79,21 @@ pub fn search<NT: NodeType>(
         // If alpha > 0 (we expect to be winning), penalize draws to avoid them
         // If beta < 0 (we expect to be losing), reward draws to seek them
         const CONTEMPT: i32 = 10; // Small contempt factor (centipawns)
-        
+
         let draw_score = if alpha.raw() > CONTEMPT {
             // We're winning - penalize draws to avoid repetition
             Score::cp(-CONTEMPT)
         } else if beta.raw() < -CONTEMPT {
-            // We're losing - reward draws to seek repetition  
+            // We're losing - reward draws to seek repetition
             Score::cp(CONTEMPT)
         } else {
             // Close to equal - treat as pure draw
             Score::draw()
         };
-        
+
         return SearchResult {
             best_move: None,
             score: draw_score,
-            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -110,7 +108,6 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: None,
                 score: alpha,
-                pv: smallvec![],
                 stats: searcher.stats().clone(),
             };
         }
@@ -122,7 +119,6 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: None,
                 score: beta,
-                pv: smallvec![],
                 stats: searcher.stats().clone(),
             };
         }
@@ -134,26 +130,32 @@ pub fn search<NT: NodeType>(
     // === TT Probe ===
     if let Some(entry) = searcher.shared.tt.probe(hash) {
         tt_move = entry.best_move();
-        
+
         // Only use TT score if depth is sufficient
         if entry.depth() >= depth {
             let tt_score = entry.score().from_tt(ply.raw());
-            
+
             match entry.bound() {
                 BoundType::Exact => {
+                    if let Some(m) = tt_move {
+                        searcher.pv_table[p][0] = m;
+                        searcher.pv_length[p] = 1;
+                    }
                     return SearchResult {
                         best_move: tt_move,
                         score: tt_score,
-                        pv: tt_move.map(|m| smallvec![m]).unwrap_or_default(),
                         stats: searcher.stats().clone(),
                     };
                 }
                 BoundType::LowerBound => {
                     if !NT::PV && tt_score >= beta {
+                        if let Some(m) = tt_move {
+                            searcher.pv_table[p][0] = m;
+                            searcher.pv_length[p] = 1;
+                        }
                         return SearchResult {
                             best_move: tt_move,
                             score: tt_score,
-                            pv: tt_move.map(|m| smallvec![m]).unwrap_or_default(),
                             stats: searcher.stats().clone(),
                         };
                     }
@@ -164,10 +166,13 @@ pub fn search<NT: NodeType>(
                 }
                 BoundType::UpperBound => {
                     if !NT::PV && tt_score <= alpha {
+                        if let Some(m) = tt_move {
+                            searcher.pv_table[p][0] = m;
+                            searcher.pv_length[p] = 1;
+                        }
                         return SearchResult {
                             best_move: tt_move,
                             score: tt_score,
-                            pv: tt_move.map(|m| smallvec![m]).unwrap_or_default(),
                             stats: searcher.stats().clone(),
                         };
                     }
@@ -186,7 +191,6 @@ pub fn search<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: Score::draw(),
-            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -199,7 +203,7 @@ pub fn search<NT: NodeType>(
     if tt_move.is_none() && depth.raw() >= 4 {
         iir_reduction = 1;
     }
-    
+
     let adjusted_depth = Depth::new((depth.raw() - iir_reduction).max(0));
 
     // === Reverse Futility Pruning (RFP) ===
@@ -208,7 +212,7 @@ pub fn search<NT: NodeType>(
     let mut static_eval = None;
     let pawn_hash = board.pawn_hash();
     let color = board.turn();
-    
+
     if !in_check && adjusted_depth.raw() <= 4 {
         #[cfg(debug_assertions)]
         searcher.inc_eval_calls();
@@ -217,7 +221,7 @@ pub fn search<NT: NodeType>(
         let raw_eval = evaluator.evaluate(ply.raw() as usize, board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
-        
+
         // Apply correction history adjustment
         let correction = searcher.correction.get(color, pawn_hash);
         let eval = raw_eval + Score::cp(correction / 4);
@@ -225,12 +229,11 @@ pub fn search<NT: NodeType>(
 
         // RFP Margin: 100 * depth (was 90 * depth)
         let margin = Score::cp(100 * adjusted_depth.raw());
-        
+
         if eval - margin >= beta {
-             return SearchResult {
+            return SearchResult {
                 best_move: None,
                 score: eval - margin, // Soft cap to avoid crazy scores
-                pv: smallvec![],
                 stats: searcher.stats().clone(),
             };
         }
@@ -251,15 +254,14 @@ pub fn search<NT: NodeType>(
             ply,
             probe_beta - Score::cp(1),
             probe_beta,
-            None
+            None,
         );
 
         if result.score >= probe_beta {
             return SearchResult {
-                 best_move: result.best_move,
-                 score: beta,
-                 pv: smallvec![],
-                 stats: searcher.stats().clone()
+                best_move: result.best_move,
+                score: beta,
+                stats: searcher.stats().clone(),
             };
         }
     }
@@ -272,18 +274,19 @@ pub fn search<NT: NodeType>(
         let dominated_by_pawns = (board.piece_bb(Piece::Knight)
             | board.piece_bb(Piece::Bishop)
             | board.piece_bb(Piece::Rook)
-            | board.piece_bb(Piece::Queen)).is_empty();
-        
+            | board.piece_bb(Piece::Queen))
+        .is_empty();
+
         if !dominated_by_pawns {
             // Reduction: R=5 if depth > 6, else R=4 (aggressive)
             let r = if adjusted_depth.raw() > 6 { 5 } else { 4 };
-            
+
             // Create a null move board (pass the turn)
             let null_board = board.make_null_move();
-            
+
             // Use current evaluator, just refresh the next ply for null board
             evaluator.refresh(ply.next().raw() as usize, &null_board);
-            
+
             let null_result = search::<OffPV>(
                 searcher,
                 evaluator,
@@ -292,17 +295,16 @@ pub fn search<NT: NodeType>(
                 ply.next(),
                 -beta,
                 -beta + Score::cp(1),
-                None,  // No prev move for null move
+                None, // No prev move for null move
             );
-            
+
             let null_score = -null_result.score;
-            
+
             if null_score >= beta {
                 // Null move cutoff
                 return SearchResult {
                     best_move: None,
-                    score: beta,
-                    pv: smallvec![],
+                    score: beta, // Fail high
                     stats: searcher.stats().clone(),
                 };
             }
@@ -327,7 +329,6 @@ pub fn search<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score,
-            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -340,14 +341,13 @@ pub fn search<NT: NodeType>(
     // Get killers for this ply
     let killers = searcher.killers.get(ply);
     let color = board.turn();
-    
+
     // Get counter-move for opponent's previous move
     let counter_move = prev_move.and_then(|pm| searcher.countermoves.get(pm));
 
     // Create MovePicker to lazily score and yield moves
-    let mut move_picker = ordering::MovePicker::new(
-        board, moves, tt_move, killers, counter_move, color
-    );
+    let mut move_picker =
+        ordering::MovePicker::new(board, moves, tt_move, killers, counter_move, color);
 
     // Static eval is already computed for RFP if depth <= 7
     // If not (e.g. was in check check or deeper), compute it now if needed for Razoring/Futility
@@ -361,15 +361,16 @@ pub fn search<NT: NodeType>(
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
         static_eval = Some(val);
     }
-    
+
     // Razoring - only on non-PV nodes
     if !NT::PV && depth.raw() <= 3 && !in_check {
         if let Some(eval) = static_eval {
             let threshold = alpha - Score::cp(200 + depth.raw() * 60);
             if eval < threshold {
-                let result = qsearch::quiescence::<OffPV>(searcher, evaluator, board, ply, 0, alpha, beta);
-                 if result.score < alpha {
-                    return result; 
+                let result =
+                    qsearch::quiescence::<OffPV>(searcher, evaluator, board, ply, 0, alpha, beta);
+                if result.score < alpha {
+                    return result;
                 }
             }
         }
@@ -377,7 +378,6 @@ pub fn search<NT: NodeType>(
 
     let mut best_move = None;
     let mut best_score = Score::neg_infinity();
-    let mut pv: PV = smallvec![];
     // Use fixed-size array for searched quiets to avoid allocations
     let mut searched_quiets: [Move; 64] = [Move::NULL; 64];
     let mut quiets_count = 0usize;
@@ -414,19 +414,19 @@ pub fn search<NT: NodeType>(
         // LMR: Late Move Reductions
         // Reduce depth for late quiet moves that aren't special
         let mut reduced = false;
-        
+
         // Check extension: extend +1 when in check to avoid horizon effect
         let extension = if in_check { 1 } else { 0 };
-        
-        let search_depth = if move_idx >= 2 
-            && adjusted_depth.raw() >= 3 
-            && !in_check 
+
+        let search_depth = if move_idx >= 2
+            && adjusted_depth.raw() >= 3
+            && !in_check
             && !gives_check
             && !is_killer
         {
             // Logarithmic reduction formula (pre-computed)
             let mut reduction = get_lmr(adjusted_depth.raw(), move_idx);
-            
+
             // Reduce more for quiet moves
             if is_quiet {
                 reduction += 1;
@@ -447,7 +447,13 @@ pub fn search<NT: NodeType>(
 
         // === History Pruning ===
         // Prune quiet moves that have historically failed significantly
-        if adjusted_depth.raw() < 6 && is_quiet && !in_check && !gives_check && !is_killer && move_idx > 0 {
+        if adjusted_depth.raw() < 6
+            && is_quiet
+            && !in_check
+            && !gives_check
+            && !is_killer
+            && move_idx > 0
+        {
             // More aggressive pruning threshold: -2000 * depth
             let threshold = -2000 * adjusted_depth.raw();
             if searcher.history.get(color, m) < threshold {
@@ -458,11 +464,11 @@ pub fn search<NT: NodeType>(
         // === SEE Pruning for Quiet Moves ===
         // Prune quiet moves that are obvious blunders (e.g. putting a piece en prise)
         if adjusted_depth.raw() <= 4 && is_quiet && !in_check && !gives_check && move_idx > 0 {
-             // If move loses material (at least 50cp), prune it
-             // This uses SEE to see if the move is "safe"
-             if !see::see_ge(board, m, -50) {
-                 continue;
-             }
+            // If move loses material (at least 50cp), prune it
+            // This uses SEE to see if the move is "safe"
+            if !see::see_ge(board, m, -50) {
+                continue;
+            }
         }
 
         // === Futility Pruning ===
@@ -477,7 +483,7 @@ pub fn search<NT: NodeType>(
                         searched_quiets[quiets_count] = m;
                         quiets_count += 1;
                     }
-                    continue;  // Prune this move
+                    continue; // Prune this move
                 }
             }
         }
@@ -495,7 +501,7 @@ pub fn search<NT: NodeType>(
         // === Principal Variation Search (PVS) ===
         let mut result;
         let mut score;
-        
+
         if move_idx == 0 {
             // Incremental update for next depth
             if !evaluator.update_move(ply.raw() as usize, board, m) {
@@ -511,7 +517,7 @@ pub fn search<NT: NodeType>(
                 ply.next(),
                 -beta,
                 -alpha,
-                Some(m),  // Pass current move as prev_move
+                Some(m), // Pass current move as prev_move
             );
             score = -result.score;
         } else {
@@ -532,7 +538,7 @@ pub fn search<NT: NodeType>(
                 Some(m),
             );
             score = -result.score;
-            
+
             // Re-search with full window if fails high (only on PV nodes)
             if NT::PV && score > alpha && score < beta && !searcher.should_stop() {
                 // Re-use same evaluator since board/move didn't change
@@ -577,9 +583,14 @@ pub fn search<NT: NodeType>(
             best_score = score;
             best_move = Some(m);
 
-            pv.clear();
-            pv.push(m);
-            pv.extend(result.pv);
+            // Update Triangular PV Table
+            searcher.pv_table[p][0] = m;
+            let next_p = p + 1;
+            let len = searcher.pv_length[next_p];
+            for i in 0..len {
+                searcher.pv_table[p][i + 1] = searcher.pv_table[next_p][i];
+            }
+            searcher.pv_length[p] = len + 1;
 
             if score > alpha {
                 alpha = score;
@@ -589,7 +600,12 @@ pub fn search<NT: NodeType>(
                     if is_quiet {
                         searcher.killers.store(ply, m);
                         // Update history: bonus for cutoff move, penalty for searched quiets
-                        searcher.history.update_on_cutoff(color, m, depth.raw(), &searched_quiets[..quiets_count]);
+                        searcher.history.update_on_cutoff(
+                            color,
+                            m,
+                            depth.raw(),
+                            &searched_quiets[..quiets_count],
+                        );
                         // Update counter-move
                         if let Some(pm) = prev_move {
                             searcher.countermoves.store(pm, m);
@@ -599,7 +615,7 @@ pub fn search<NT: NodeType>(
                 }
             }
         }
-        
+
         // Track searched quiet moves for history penalty
         if is_quiet && quiets_count < 64 {
             searched_quiets[quiets_count] = m;
@@ -614,7 +630,9 @@ pub fn search<NT: NodeType>(
     if let Some(se) = static_eval {
         if !best_score.is_mate_score() && !se.is_mate_score() {
             let diff = best_score.raw() - se.raw();
-            searcher.correction.update(color, pawn_hash, depth.raw(), diff);
+            searcher
+                .correction
+                .update(color, pawn_hash, depth.raw(), diff);
         }
     }
 
@@ -628,19 +646,15 @@ pub fn search<NT: NodeType>(
             BoundType::UpperBound
         };
 
-        searcher.shared.tt.store(
-            hash,
-            best_move,
-            best_score.to_tt(ply.raw()),
-            depth,
-            bound,
-        );
+        searcher
+            .shared
+            .tt
+            .store(hash, best_move, best_score.to_tt(ply.raw()), depth, bound);
     }
 
     SearchResult {
         best_move,
         score: best_score,
-        pv,
         stats: searcher.stats().clone(),
     }
 }

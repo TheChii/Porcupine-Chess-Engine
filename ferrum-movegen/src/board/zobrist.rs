@@ -1,6 +1,6 @@
 //! Zobrist hashing for board positions.
 
-use crate::types::{Square, Piece, Color, File, CastleRights};
+use crate::types::{CastleRights, Color, File, Piece, Square};
 
 /// Zobrist hash keys.
 pub struct Zobrist {
@@ -21,10 +21,10 @@ impl Zobrist {
         let side;
         let mut castling = [0u64; 16];
         let mut ep_file = [0u64; 8];
-        
+
         // Simple xorshift PRNG
         let mut state = 0x3243F6A8885A308Du64; // PI digits
-        
+
         // Helper to get next random
         macro_rules! next_rand {
             ($state:expr) => {{
@@ -34,7 +34,7 @@ impl Zobrist {
                 $state
             }};
         }
-        
+
         // Generate piece-square keys
         let mut piece = 0;
         while piece < 6 {
@@ -49,24 +49,24 @@ impl Zobrist {
             }
             piece += 1;
         }
-        
+
         // Side to move
         side = next_rand!(state);
-        
+
         // Castling keys
         let mut i = 0;
         while i < 16 {
             castling[i] = next_rand!(state);
             i += 1;
         }
-        
+
         // EP file keys
         let mut i = 0;
         while i < 8 {
             ep_file[i] = next_rand!(state);
             i += 1;
         }
-        
+
         Zobrist {
             piece_squares,
             side,
@@ -113,7 +113,7 @@ mod tests {
         let k1 = ZOBRIST.piece_square(Piece::Pawn, Color::White, Square::E2);
         let k2 = ZOBRIST.piece_square(Piece::Pawn, Color::White, Square::E4);
         let k3 = ZOBRIST.piece_square(Piece::Pawn, Color::Black, Square::E2);
-        
+
         assert_ne!(k1, k2);
         assert_ne!(k1, k3);
         assert_ne!(k2, k3);

@@ -82,13 +82,13 @@ impl Default for KillerTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use movegen::{Square, MoveFlag};
+    use movegen::{MoveFlag, Square};
 
     #[test]
     fn test_killer_store_and_get() {
         let mut table = KillerTable::new();
         let ply = Ply::new(5);
-        
+
         // Create test moves
         let mv1 = Move::new(Square::E2, Square::E4, MoveFlag::DoublePawnPush);
         let mv2 = Move::new(Square::D2, Square::D4, MoveFlag::DoublePawnPush);

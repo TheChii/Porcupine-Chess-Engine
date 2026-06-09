@@ -1,10 +1,10 @@
 //! Make and unmake move logic.
 
-use super::Board;
 use super::zobrist::ZOBRIST;
+use super::Board;
 use crate::bitboard::Bitboard;
-use crate::types::{Square, Piece, Color, CastleRights};
 use crate::movegen::{Move, MoveFlag};
+use crate::types::{CastleRights, Color, Piece, Square};
 
 /// State that needs to be saved for unmaking a move.
 #[derive(Clone, Copy)]
@@ -23,7 +23,7 @@ impl Board {
     #[inline]
     pub fn make_move_new(&self, mv: Move) -> Board {
         let mut result = *self;
-        
+
         let from = mv.from();
         let to = mv.to();
         let flag = mv.flag();
@@ -34,13 +34,13 @@ impl Board {
         let piece = self.piece_at(from).map(|(p, _)| p).unwrap_or(Piece::Pawn);
 
         // === Zobrist hash updates ===
-        
+
         // XOR out old en passant
         if let Some(ep) = self.ep_square {
             result.hash ^= ZOBRIST.ep_file(ep.file());
         }
         result.ep_square = None;
-        
+
         // XOR out old castling rights
         result.hash ^= ZOBRIST.castling(self.castling);
 
@@ -138,8 +138,10 @@ impl Board {
         }
 
         // Update castling rights
-        let new_castling = result.castling.remove(CastleRights::update_mask(from))
-                                          .remove(CastleRights::update_mask(to));
+        let new_castling = result
+            .castling
+            .remove(CastleRights::update_mask(from))
+            .remove(CastleRights::update_mask(to));
         result.castling = new_castling;
         result.hash ^= ZOBRIST.castling(new_castling);
 
@@ -188,7 +190,7 @@ impl Board {
         match flag {
             MoveFlag::Quiet | MoveFlag::DoublePawnPush => {
                 self.move_piece(from, to, piece, us);
-                
+
                 if flag == MoveFlag::DoublePawnPush {
                     // Set en passant square
                     let ep = if us == Color::White {
@@ -242,10 +244,10 @@ impl Board {
             }
             _ if flag.is_promotion() => {
                 let promo_piece = flag.promotion_piece().unwrap();
-                
+
                 // Remove pawn
                 self.remove_piece(from, Piece::Pawn, us);
-                
+
                 // Capture if applicable
                 if flag.is_capture() {
                     if let Some((cap_piece, _)) = self.piece_at(to) {
@@ -253,7 +255,7 @@ impl Board {
                         self.remove_piece(to, cap_piece, them);
                     }
                 }
-                
+
                 // Add promoted piece
                 self.add_piece(to, promo_piece, us);
             }
@@ -392,7 +394,7 @@ impl Board {
         let from = mv.from();
         let to = mv.to();
         let flag = mv.flag();
-        
+
         // Switch side back
         self.turn = !self.turn;
         let us = self.turn;
@@ -459,7 +461,7 @@ impl Board {
         self.halfmove_clock = undo.halfmove_clock;
         self.hash = undo.hash;
         self.checkers = undo.checkers;
-        
+
         // Fullmove number
         if us == Color::Black {
             self.fullmove_number -= 1;
@@ -472,7 +474,7 @@ impl Board {
         let from = mv.from();
         let to = mv.to();
         let flag = mv.flag();
-        
+
         // Switch side back
         self.turn = !self.turn;
         let us = self.turn;
@@ -545,19 +547,19 @@ impl Board {
     #[inline]
     pub fn make_null_move(&self) -> Board {
         let mut result = *self;
-        
+
         // Clear en passant
         result.ep_square = None;
-        
+
         // Switch side
         result.turn = !self.turn;
-        
+
         // Update hash for side change
         result.hash ^= ZOBRIST.side();
-        
+
         // Recalculate checkers for new side
         result.update_checkers();
-        
+
         result
     }
 }
@@ -571,18 +573,17 @@ mod tests {
         let mut board = Board::startpos();
         let initial_fen = board.to_fen();
         let initial_hash = board.hash();
-        
+
         // e2-e4
         let mv = Move::new(Square::E2, Square::E4, MoveFlag::DoublePawnPush);
         let undo = board.make_move(mv);
-        
+
         assert!(board.piece_at(Square::E4).is_some());
         assert!(board.piece_at(Square::E2).is_none());
-        
+
         board.unmake_move(mv, undo);
-        
+
         assert_eq!(board.to_fen(), initial_fen);
         assert_eq!(board.hash(), initial_hash);
     }
 }
-

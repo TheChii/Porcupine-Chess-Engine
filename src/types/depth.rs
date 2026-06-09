@@ -2,8 +2,8 @@
 //!
 //! Provides type-safe wrappers for search depth and ply count.
 
-use std::ops::{Add, Sub, AddAssign, SubAssign};
 use std::fmt;
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 /// Maximum search depth
 pub const MAX_DEPTH: i32 = 128;

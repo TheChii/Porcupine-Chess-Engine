@@ -5,10 +5,10 @@
 //! - `stockfish::halfkp`: Full HalfKP (40960→256×2→32→32→1) - Most accurate
 //! - `aurora`: Aurora (768→256×2→1) - Fast and accurate
 
-pub mod ops;
-pub mod layers;
-pub mod stockfish;
 pub mod aurora;
+pub mod layers;
+pub mod ops;
+pub mod stockfish;
 
 macro_rules! simple_enum {
     ($(
@@ -21,7 +21,7 @@ macro_rules! simple_enum {
         $vis enum $name {
             $($variant),*
         }
-        
+
         impl $name {
             pub const NUM: usize = [$(Self::$variant),*].len();
             pub const ALL: [Self; Self::NUM] = [$(Self::$variant),*];

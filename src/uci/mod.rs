@@ -3,12 +3,12 @@
 //! This module implements the UCI protocol for communication with chess GUIs.
 //! See: http://wbec-ridderkerk.nl/html/UCIProtocol.html
 
-mod parser;
 mod handler;
+mod parser;
 
 pub use handler::UciHandler;
 
-use crate::types::{Board, Move, Depth, Piece};
+use crate::types::{Board, Depth, Move, Piece};
 use movegen::Square;
 
 /// UCI engine identification
@@ -76,10 +76,10 @@ pub fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
     // Parse source and destination squares
     let from_str = &move_str[0..2];
     let to_str = &move_str[2..4];
-    
+
     let from = Square::from_algebraic(from_str)?;
     let to = Square::from_algebraic(to_str)?;
-    
+
     // Parse promotion piece if present
     let promo_piece = if move_str.len() > 4 {
         match move_str.chars().nth(4)? {

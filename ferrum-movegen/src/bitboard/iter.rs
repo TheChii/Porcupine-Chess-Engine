@@ -55,9 +55,9 @@ mod tests {
 
     #[test]
     fn test_iterator() {
-        let bb = Bitboard::from_square(Square::A1) 
-               | Bitboard::from_square(Square::E4) 
-               | Bitboard::from_square(Square::H8);
+        let bb = Bitboard::from_square(Square::A1)
+            | Bitboard::from_square(Square::E4)
+            | Bitboard::from_square(Square::H8);
 
         let squares: Vec<_> = bb.iter().collect();
         assert_eq!(squares.len(), 3);

@@ -3,10 +3,10 @@
 //! Uses NNUE if available, otherwise falls back to optimized HCE.
 //! The HCE handles all game phases with tapered evaluation.
 
-use crate::types::{Board, Score, Color, Piece, piece_value, Value, Move};
+use crate::types::{piece_value, Board, Color, Move, Piece, Score, Value};
 
-pub mod nnue;
 pub mod hce;
+pub mod nnue;
 
 // Re-export the evaluator for use in search
 pub use nnue::NnueEvaluator;
@@ -77,7 +77,13 @@ pub fn material_eval_wrapper(board: &Board) -> Score {
 fn material_eval(board: &Board) -> Value {
     let mut score: Value = 0;
 
-    for piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen] {
+    for piece in &[
+        Piece::Pawn,
+        Piece::Knight,
+        Piece::Bishop,
+        Piece::Rook,
+        Piece::Queen,
+    ] {
         let white_pieces = board.piece_bb(*piece) & board.color_bb(Color::White);
         let black_pieces = board.piece_bb(*piece) & board.color_bb(Color::Black);
 
@@ -100,7 +106,7 @@ mod tests {
         let score = material_eval_wrapper(&board);
         assert!(score.raw().abs() < 50);
     }
-    
+
     #[test]
     fn test_hce_fallback() {
         // Evaluate without NNUE should use HCE

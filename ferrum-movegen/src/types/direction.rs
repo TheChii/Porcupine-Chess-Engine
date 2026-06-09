@@ -17,18 +17,30 @@ pub enum Direction {
 impl Direction {
     /// All 8 directions.
     pub const ALL: [Direction; 8] = [
-        Direction::North, Direction::South, Direction::East, Direction::West,
-        Direction::NorthEast, Direction::NorthWest, Direction::SouthEast, Direction::SouthWest,
+        Direction::North,
+        Direction::South,
+        Direction::East,
+        Direction::West,
+        Direction::NorthEast,
+        Direction::NorthWest,
+        Direction::SouthEast,
+        Direction::SouthWest,
     ];
 
     /// Orthogonal directions (rook-like).
     pub const ORTHOGONAL: [Direction; 4] = [
-        Direction::North, Direction::South, Direction::East, Direction::West,
+        Direction::North,
+        Direction::South,
+        Direction::East,
+        Direction::West,
     ];
 
     /// Diagonal directions (bishop-like).
     pub const DIAGONAL: [Direction; 4] = [
-        Direction::NorthEast, Direction::NorthWest, Direction::SouthEast, Direction::SouthWest,
+        Direction::NorthEast,
+        Direction::NorthWest,
+        Direction::SouthEast,
+        Direction::SouthWest,
     ];
 
     /// Get the delta value for this direction.
@@ -55,8 +67,13 @@ impl Direction {
     /// Check if this is a diagonal direction.
     #[inline(always)]
     pub const fn is_diagonal(self) -> bool {
-        matches!(self, Direction::NorthEast | Direction::NorthWest | 
-                      Direction::SouthEast | Direction::SouthWest)
+        matches!(
+            self,
+            Direction::NorthEast
+                | Direction::NorthWest
+                | Direction::SouthEast
+                | Direction::SouthWest
+        )
     }
 
     /// Check if this is an orthogonal direction.

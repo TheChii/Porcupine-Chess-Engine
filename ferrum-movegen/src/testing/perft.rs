@@ -39,7 +39,6 @@ pub fn perft_divide(board: &Board, depth: u32) -> Vec<(String, u64)> {
     results
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,17 +93,17 @@ mod tests {
 
     #[test]
     fn test_perft_kiwipete_depth1() {
-        let board = Board::from_fen(
-            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
-        ).unwrap();
+        let board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
         assert_eq!(perft(&board, 1), 48);
     }
 
     #[test]
     fn test_perft_kiwipete_depth2() {
-        let board = Board::from_fen(
-            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
-        ).unwrap();
+        let board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
         assert_eq!(perft(&board, 2), 2039);
     }
 }

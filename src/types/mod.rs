@@ -9,28 +9,18 @@
 //! - Provide conversion traits to bridge with nnue types
 //! - Define engine-specific types (Score, Depth, etc.) optimized for search
 
-mod score;
-mod depth;
 mod convert;
+mod depth;
+mod score;
 
 // Re-export our custom types
-pub use score::{Score, SCORE_INFINITY, SCORE_MATE, SCORE_DRAW, SCORE_NONE};
+pub use convert::{nnue_color_flip, ToNnue};
 pub use depth::{Depth, Ply, MAX_DEPTH, MAX_PLY};
-pub use convert::{ToNnue, nnue_color_flip};
+pub use score::{Score, SCORE_DRAW, SCORE_INFINITY, SCORE_MATE, SCORE_NONE};
 
 // Re-export movegen crate types as canonical types
 // This gives us a single source of truth and avoids confusion
-pub use movegen::{
-    Board,
-    Move,
-    Square,
-    Piece,
-    Color,
-    Bitboard,
-    CastleRights,
-    MoveList,
-    MoveFlag,
-};
+pub use movegen::{Bitboard, Board, CastleRights, Color, Move, MoveFlag, MoveList, Piece, Square};
 
 /// Zobrist hash type (used for transposition table)
 pub type Hash = u64;

@@ -1,11 +1,11 @@
 //! UCI command handler and main loop.
 
 use super::parser::{parse_command, UciCommand};
-use super::{parse_move, format_move, SearchParams, ENGINE_NAME, ENGINE_AUTHOR};
-use crate::types::{Board, Move, Score};
-use crate::search::{Searcher, SearchLimits};
-use crate::eval::nnue;
+use super::{format_move, parse_move, SearchParams, ENGINE_AUTHOR, ENGINE_NAME};
 use crate::book::PolyglotBook;
+use crate::eval::nnue;
+use crate::search::{SearchLimits, Searcher};
+use crate::types::{Board, Move, Score};
 use std::io::{self, BufRead, Write};
 
 /// UCI protocol handler
@@ -41,13 +41,13 @@ impl Default for UciHandler {
 impl UciHandler {
     pub fn new() -> Self {
         let mut searcher = Searcher::new();
-        
+
         // Load embedded NNUE model (compiled into the binary)
         match nnue::load_embedded_model() {
             Ok(model) => {
                 println!("info string NNUE loaded: HalfKP (40960->256x2->32->32->1)");
                 searcher.set_nnue(Some(model));
-            },
+            }
             Err(e) => {
                 println!("info string NNUE load failed: {:?}", e);
                 println!("info string Using material eval");
@@ -130,14 +130,14 @@ impl UciHandler {
     fn cmd_uci(&self) {
         self.send(&format!("id name {}", ENGINE_NAME));
         self.send(&format!("id author {}", ENGINE_AUTHOR));
-        
+
         // Send options
         self.send("option name Hash type spin default 16 min 1 max 16384");
         self.send("option name Threads type spin default 1 min 1 max 64");
         self.send("option name MoveOverhead type spin default 10 min 0 max 5000");
         self.send("option name OwnBook type check default false");
         self.send("option name BookPath type string default <empty>");
-        
+
         self.send("uciok");
     }
 
@@ -184,16 +184,23 @@ impl UciHandler {
                     if self.debug {
                         eprintln!("OwnBook set to: {}", self.use_own_book);
                     }
-                    
+
                     // If enabling OwnBook and we have a book path, load the book
                     if self.use_own_book && !self.book_path.is_empty() {
                         match PolyglotBook::load(&self.book_path) {
                             Ok(b) => {
-                                println!("info string Opening book loaded: {} ({} entries)", b.desc, b.len());
+                                println!(
+                                    "info string Opening book loaded: {} ({} entries)",
+                                    b.desc,
+                                    b.len()
+                                );
                                 self.book = Some(b);
                             }
                             Err(e) => {
-                                println!("info string Failed to load book {}: {:?}", self.book_path, e);
+                                println!(
+                                    "info string Failed to load book {}: {:?}",
+                                    self.book_path, e
+                                );
                                 self.book = None;
                             }
                         }
@@ -215,11 +222,18 @@ impl UciHandler {
                     if self.use_own_book {
                         match PolyglotBook::load(&self.book_path) {
                             Ok(b) => {
-                                println!("info string Opening book loaded: {} ({} entries)", b.desc, b.len());
+                                println!(
+                                    "info string Opening book loaded: {} ({} entries)",
+                                    b.desc,
+                                    b.len()
+                                );
                                 self.book = Some(b);
                             }
                             Err(e) => {
-                                println!("info string Failed to load book {}: {:?}", self.book_path, e);
+                                println!(
+                                    "info string Failed to load book {}: {:?}",
+                                    self.book_path, e
+                                );
                                 self.book = None;
                             }
                         }
@@ -245,15 +259,15 @@ impl UciHandler {
         let nnue_model = searcher.nnue.take();
         let size_mb = searcher.shared.tt.size_mb();
         let threads = searcher.threads();
-        
+
         self.board = Board::default();
         let mut new_searcher = Searcher::new();
-        
+
         // Restore NNUE model
         new_searcher.nnue = nnue_model;
         new_searcher.set_hash_size(size_mb);
         new_searcher.set_threads(threads);
-        
+
         self.shared = new_searcher.shared.clone();
         self.searcher = Some(new_searcher);
     }
@@ -279,9 +293,12 @@ impl UciHandler {
                 eprintln!("Invalid move: {}", move_str);
             }
         }
-        
+
         // Store history in searcher for repetition detection
-        self.searcher.as_mut().unwrap().set_position_with_history(self.board.clone(), history);
+        self.searcher
+            .as_mut()
+            .unwrap()
+            .set_position_with_history(self.board.clone(), history);
     }
 
     fn cmd_go(&mut self, params: SearchParams) {
@@ -299,42 +316,23 @@ impl UciHandler {
         }
 
         // Set up search limits with move overhead
-        let limits = SearchLimits::from_params(&params)
-            .with_move_overhead(self.move_overhead);
-        
+        let limits = SearchLimits::from_params(&params).with_move_overhead(self.move_overhead);
+
         let mut searcher = self.searcher.take().unwrap();
         searcher.set_position(self.board.clone());
-        
+
         let (tx, rx) = std::sync::mpsc::channel();
         self.search_rx = Some(rx);
 
         std::thread::spawn(move || {
             let result = searcher.search(limits);
 
-            // Send info
-            let stats = result.stats;
-            let pv_str: String = result.pv.iter()
-                .map(|m| format_move(*m))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            println!(
-                "info depth {} seldepth {} multipv 1 score {} nodes {} nps {} time {} pv {}",
-                stats.depth.raw(),
-                stats.seldepth.raw(),
-                result.score,
-                stats.nodes,
-                stats.nps(),
-                stats.time_ms,
-                pv_str
-            );
-
             // Send best move
             match result.best_move {
                 Some(m) => println!("bestmove {}", format_move(m)),
                 None => println!("bestmove 0000"),
             }
-            
+
             // Send searcher back
             let _ = tx.send(searcher);
         });
@@ -349,15 +347,21 @@ impl UciHandler {
     }
 
     fn cmd_stop(&mut self) {
-        self.shared.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.shared
+            .stop
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn cmd_ponderhit(&mut self) {
-        self.shared.ponderhit.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.shared
+            .ponderhit
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn cmd_quit(&mut self) {
-        self.shared.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.shared
+            .stop
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         self.quit = true;
     }
 

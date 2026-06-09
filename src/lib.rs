@@ -1,6 +1,6 @@
-pub mod types;
-pub mod engine;
-pub mod search;
-pub mod eval;
-pub mod uci;
 pub mod book;
+pub mod engine;
+pub mod eval;
+pub mod search;
+pub mod types;
+pub mod uci;

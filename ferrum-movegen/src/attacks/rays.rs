@@ -1,7 +1,7 @@
 //! Ray tables for sliding piece move generation.
 
 use crate::bitboard::Bitboard;
-use crate::types::{Square, Direction};
+use crate::types::{Direction, Square};
 
 /// Precomputed ray tables [direction][square].
 /// Each ray extends from the square in the given direction until the board edge.
@@ -26,12 +26,12 @@ pub fn ray(dir: Direction, sq: Square) -> Bitboard {
 /// Generate ray tables at compile time.
 const fn generate_rays() -> [[Bitboard; 64]; 8] {
     let mut rays = [[Bitboard::EMPTY; 64]; 8];
-    
+
     let mut sq = 0u8;
     while sq < 64 {
         let file = sq & 7;
         let rank = sq >> 3;
-        
+
         // North ray
         {
             let mut ray = 0u64;
@@ -42,7 +42,7 @@ const fn generate_rays() -> [[Bitboard; 64]; 8] {
             }
             rays[0][sq as usize] = Bitboard(ray);
         }
-        
+
         // South ray
         {
             let mut ray = 0u64;
@@ -53,7 +53,7 @@ const fn generate_rays() -> [[Bitboard; 64]; 8] {
             }
             rays[1][sq as usize] = Bitboard(ray);
         }
-        
+
         // East ray
         {
             let mut ray = 0u64;
@@ -64,7 +64,7 @@ const fn generate_rays() -> [[Bitboard; 64]; 8] {
             }
             rays[2][sq as usize] = Bitboard(ray);
         }
-        
+
         // West ray
         {
             let mut ray = 0u64;
@@ -75,7 +75,7 @@ const fn generate_rays() -> [[Bitboard; 64]; 8] {
             }
             rays[3][sq as usize] = Bitboard(ray);
         }
-        
+
         // Northeast ray
         {
             let mut ray = 0u64;
@@ -88,7 +88,7 @@ const fn generate_rays() -> [[Bitboard; 64]; 8] {
             }
             rays[4][sq as usize] = Bitboard(ray);
         }
-        
+
         // Northwest ray
         {
             let mut ray = 0u64;
@@ -101,7 +101,7 @@ const fn generate_rays() -> [[Bitboard; 64]; 8] {
             }
             rays[5][sq as usize] = Bitboard(ray);
         }
-        
+
         // Southeast ray
         {
             let mut ray = 0u64;
@@ -114,7 +114,7 @@ const fn generate_rays() -> [[Bitboard; 64]; 8] {
             }
             rays[6][sq as usize] = Bitboard(ray);
         }
-        
+
         // Southwest ray
         {
             let mut ray = 0u64;
@@ -127,10 +127,10 @@ const fn generate_rays() -> [[Bitboard; 64]; 8] {
             }
             rays[7][sq as usize] = Bitboard(ray);
         }
-        
+
         sq += 1;
     }
-    
+
     rays
 }
 

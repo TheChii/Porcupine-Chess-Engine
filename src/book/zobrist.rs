@@ -5,7 +5,7 @@
 //! hash calculation required for compatibility with Polyglot opening books.
 
 use crate::types::{Board, Color, Piece};
-use movegen::{Square, File, Rank};
+use movegen::{File, Rank, Square};
 
 /// Polyglot random numbers for Zobrist hashing.
 /// These are the exact values from the Polyglot source code.
@@ -284,24 +284,24 @@ pub fn polyglot_hash(board: &Board) -> u64 {
 fn has_ep_pawn(board: &Board, ep_sq: Square) -> bool {
     let ep_rank = ep_sq.rank();
     let ep_file = ep_sq.file();
-    
+
     // Determine the rank where capturing pawns would be
     let pawn_rank = if ep_rank == Rank::R6 {
         Rank::R5 // White pawn capturing black pawn
     } else {
         Rank::R4 // Black pawn capturing white pawn
     };
-    
+
     let pawn_color = if ep_rank == Rank::R6 {
         Color::White
     } else {
         Color::Black
     };
-    
+
     // Check adjacent files for pawns
     let file_idx = ep_file.index();
     let mut has_pawn = false;
-    
+
     if file_idx > 0 {
         let check_sq = Square::from_file_rank(File::from_index(file_idx - 1).unwrap(), pawn_rank);
         if let Some((piece, color)) = board.piece_at(check_sq) {
@@ -310,7 +310,7 @@ fn has_ep_pawn(board: &Board, ep_sq: Square) -> bool {
             }
         }
     }
-    
+
     if file_idx < 7 && !has_pawn {
         let check_sq = Square::from_file_rank(File::from_index(file_idx + 1).unwrap(), pawn_rank);
         if let Some((piece, color)) = board.piece_at(check_sq) {
@@ -319,7 +319,7 @@ fn has_ep_pawn(board: &Board, ep_sq: Square) -> bool {
             }
         }
     }
-    
+
     has_pawn
 }
 
@@ -335,10 +335,10 @@ fn piece_key(piece: Piece, color: Color, sq: Square) -> u64 {
         Piece::Queen => 512,
         Piece::King => 640,
     };
-    
+
     // Color offset: black=0, white=64
     let color_offset = if color == Color::Black { 0 } else { 64 };
-    
+
     let sq_index = sq.index() as usize;
     RANDOM64[piece_offset + color_offset + sq_index]
 }
@@ -357,10 +357,10 @@ mod tests {
 
     #[test]
     fn test_after_e4() {
-        let board = Board::from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1").unwrap();
+        let board =
+            Board::from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1").unwrap();
         let hash = polyglot_hash(&board);
         // Expected Polyglot hash after 1.e4
         assert_eq!(hash, 0x823c9b50fd114196);
     }
 }
-

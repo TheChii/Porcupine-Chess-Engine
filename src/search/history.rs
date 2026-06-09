@@ -3,7 +3,7 @@
 //! Tracks which quiet moves cause beta cutoffs and uses
 //! accumulated scores to order moves better in future searches.
 
-use crate::types::{Move, Color};
+use crate::types::{Color, Move};
 
 /// History table: [color][from_sq][to_sq] -> score
 #[derive(Clone)]
@@ -35,7 +35,7 @@ impl HistoryTable {
         let c = color.index();
         let from = mv.from().index() as usize;
         let to = mv.to().index() as usize;
-        
+
         // Gravity formula: prevents scores from growing unbounded
         // new_score = old_score + bonus - (old_score * |bonus| / max)
         let old = self.table[c][from][to];
@@ -45,12 +45,18 @@ impl HistoryTable {
     }
 
     /// Apply bonus to move that caused cutoff, penalty to other quiet moves
-    pub fn update_on_cutoff(&mut self, color: Color, best_move: Move, depth: i32, other_quiets: &[Move]) {
+    pub fn update_on_cutoff(
+        &mut self,
+        color: Color,
+        best_move: Move,
+        depth: i32,
+        other_quiets: &[Move],
+    ) {
         let bonus = (depth * depth).min(400);
-        
+
         // Bonus for the move that caused cutoff
         self.update(color, best_move, bonus);
-        
+
         // Penalty for quiet moves that didn't cause cutoff
         for &m in other_quiets {
             if m != best_move {

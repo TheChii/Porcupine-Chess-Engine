@@ -3,8 +3,8 @@
 //! The `movegen` crate and `nnue` crate have their own Square, Piece, and Color types.
 //! This module provides zero-cost conversions between them.
 
-use movegen::{Square as MovegenSquare, Piece as MovegenPiece, Color as MovegenColor};
-use nnue::{Square as NnueSquare, Piece as NnuePiece, Color as NnueColor};
+use movegen::{Color as MovegenColor, Piece as MovegenPiece, Square as MovegenSquare};
+use nnue::{Color as NnueColor, Piece as NnuePiece, Square as NnueSquare};
 
 /// Trait for converting movegen crate types to nnue crate types.
 ///

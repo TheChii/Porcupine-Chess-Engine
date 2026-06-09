@@ -2,13 +2,15 @@
 //!
 //! Uses ferrum-nnue with Stockfish HalfKP architecture (40960→256×2→32→32→1).
 
-use crate::types::{Board, Score, ToNnue, Move, Piece, Color, MoveFlag};
-use nnue::stockfish::halfkp::{SfHalfKpFullModel, SfHalfKpModel, SfHalfKpState, scale_nn_to_centipawns};
+use crate::types::{Board, Color, Move, MoveFlag, Piece, Score, ToNnue};
 use binread::BinRead;
-use std::sync::Arc;
+use movegen::Square;
+use nnue::stockfish::halfkp::{
+    scale_nn_to_centipawns, SfHalfKpFullModel, SfHalfKpModel, SfHalfKpState,
+};
 use std::fs::File;
 use std::io::{BufReader, Cursor};
-use movegen::Square;
+use std::sync::Arc;
 
 /// Embedded NNUE network file (compiled into the binary)
 const EMBEDDED_NNUE: &[u8] = include_bytes!("../../network.nnue");
@@ -19,12 +21,12 @@ pub type Model = Arc<SfHalfKpModel>;
 /// Load NNUE model from embedded bytes (no external file needed)
 pub fn load_embedded_model() -> std::io::Result<Model> {
     let mut cursor = Cursor::new(EMBEDDED_NNUE);
-    
+
     match SfHalfKpFullModel::read(&mut cursor) {
         Ok(full_model) => Ok(Arc::new(full_model.model)),
         Err(e) => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Failed to parse embedded NNUE: {:?}", e)
+            format!("Failed to parse embedded NNUE: {:?}", e),
         )),
     }
 }
@@ -33,12 +35,12 @@ pub fn load_embedded_model() -> std::io::Result<Model> {
 pub fn load_model(path: &str) -> std::io::Result<Model> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
-    
+
     match SfHalfKpFullModel::read(&mut reader) {
         Ok(full_model) => Ok(Arc::new(full_model.model)),
         Err(e) => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Failed to parse NNUE file: {:?}", e)
+            format!("Failed to parse NNUE file: {:?}", e),
         )),
     }
 }
@@ -48,16 +50,22 @@ pub fn create_state<'m>(model: &'m SfHalfKpModel, board: &Board) -> SfHalfKpStat
     // Find king positions
     let white_king_sq = find_king_square(board, Color::White);
     let black_king_sq = find_king_square(board, Color::Black);
-    
+
     let mut state = model.new_state(white_king_sq.to_nnue(), black_king_sq.to_nnue());
 
     // Add all NON-KING pieces (HalfKP does not include kings as features)
-    for &piece in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen] {
+    for &piece in &[
+        Piece::Pawn,
+        Piece::Knight,
+        Piece::Bishop,
+        Piece::Rook,
+        Piece::Queen,
+    ] {
         for &color in &[Color::White, Color::Black] {
             let bb = board.piece_bb(piece) & board.color_bb(color);
             let nnue_piece = piece.to_nnue();
             let nnue_color = color.to_nnue();
-            
+
             for sq in bb {
                 let nnue_sq = sq.to_nnue();
                 // HalfKP: add to BOTH perspectives
@@ -66,7 +74,7 @@ pub fn create_state<'m>(model: &'m SfHalfKpModel, board: &Board) -> SfHalfKpStat
             }
         }
     }
-    
+
     state
 }
 
@@ -101,7 +109,7 @@ pub fn evaluate_scratch(model: &SfHalfKpModel, board: &Board) -> Score {
 #[inline]
 pub fn update_state_for_move(
     state: &mut SfHalfKpState<'_>,
-    board: &Board,  // Position BEFORE the move
+    board: &Board, // Position BEFORE the move
     mv: Move,
 ) -> bool {
     let from = mv.from();
@@ -163,7 +171,7 @@ pub fn update_state_for_move(
     // Handle castling: rook also moves (king move was handled above with full refresh)
     let mv_flag = mv.flag();
     let is_castling = mv_flag == MoveFlag::KingCastle || mv_flag == MoveFlag::QueenCastle;
-    
+
     if is_castling {
         let nnue_rook_color = moving_color.to_nnue();
         let (rook_from, rook_to) = if mv_flag == MoveFlag::KingCastle {
@@ -171,24 +179,44 @@ pub fn update_state_for_move(
             let rank = from.rank();
             (
                 Square::from_file_rank(movegen::File::H, rank),
-                Square::from_file_rank(movegen::File::F, rank)
+                Square::from_file_rank(movegen::File::F, rank),
             )
         } else {
             // Queen-side castling
             let rank = from.rank();
             (
                 Square::from_file_rank(movegen::File::A, rank),
-                Square::from_file_rank(movegen::File::D, rank)
+                Square::from_file_rank(movegen::File::D, rank),
             )
         };
-        
+
         let rook_from_nnue = rook_from.to_nnue();
         let rook_to_nnue = rook_to.to_nnue();
-        
-        state.sub(nnue::Color::White, nnue::Piece::Rook, nnue_rook_color, rook_from_nnue);
-        state.sub(nnue::Color::Black, nnue::Piece::Rook, nnue_rook_color, rook_from_nnue);
-        state.add(nnue::Color::White, nnue::Piece::Rook, nnue_rook_color, rook_to_nnue);
-        state.add(nnue::Color::Black, nnue::Piece::Rook, nnue_rook_color, rook_to_nnue);
+
+        state.sub(
+            nnue::Color::White,
+            nnue::Piece::Rook,
+            nnue_rook_color,
+            rook_from_nnue,
+        );
+        state.sub(
+            nnue::Color::Black,
+            nnue::Piece::Rook,
+            nnue_rook_color,
+            rook_from_nnue,
+        );
+        state.add(
+            nnue::Color::White,
+            nnue::Piece::Rook,
+            nnue_rook_color,
+            rook_to_nnue,
+        );
+        state.add(
+            nnue::Color::Black,
+            nnue::Piece::Rook,
+            nnue_rook_color,
+            rook_to_nnue,
+        );
     }
 
     true
@@ -242,7 +270,8 @@ impl<'m> NnueEvaluator<'m> {
     #[inline]
     pub fn refresh(&mut self, ply: usize, board: &Board) {
         if ply >= self.states.len() {
-            self.states.resize(ply + 1, self.states.last().unwrap().clone());
+            self.states
+                .resize(ply + 1, self.states.last().unwrap().clone());
         }
         self.states[ply] = create_state(self.model, board);
     }

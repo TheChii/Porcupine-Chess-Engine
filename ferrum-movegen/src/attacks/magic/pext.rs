@@ -3,9 +3,9 @@
 //! PEXT (Parallel Bit Extract) provides O(1) perfect hashing for sliding attacks.
 //! This is faster than magic bitboards on CPUs with native BMI2 support.
 
+use super::{bishop_attacks_slow, bishop_mask, rook_attacks_slow, rook_mask};
 use crate::bitboard::Bitboard;
 use crate::types::Square;
-use super::{rook_mask, bishop_mask, rook_attacks_slow, bishop_attacks_slow};
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::_pext_u64;
@@ -73,17 +73,17 @@ const fn init_rook_pext_entries() -> [PextEntry; 64] {
     let mut entries = [PextEntry::EMPTY; 64];
     let mut offset = 0usize;
     let mut sq = 0u8;
-    
+
     while sq < 64 {
         let square = unsafe { Square::from_index_unchecked(sq) };
         let mask = rook_mask(square);
         let size = 1usize << mask.count();
-        
+
         entries[sq as usize] = PextEntry { mask, offset };
         offset += size;
         sq += 1;
     }
-    
+
     entries
 }
 
@@ -91,17 +91,17 @@ const fn init_bishop_pext_entries() -> [PextEntry; 64] {
     let mut entries = [PextEntry::EMPTY; 64];
     let mut offset = 0usize;
     let mut sq = 0u8;
-    
+
     while sq < 64 {
         let square = unsafe { Square::from_index_unchecked(sq) };
         let mask = bishop_mask(square);
         let size = 1usize << mask.count();
-        
+
         entries[sq as usize] = PextEntry { mask, offset };
         offset += size;
         sq += 1;
     }
-    
+
     entries
 }
 
@@ -109,13 +109,13 @@ const fn init_rook_pext_attacks() -> [Bitboard; 102400] {
     let mut attacks = [Bitboard::EMPTY; 102400];
     let mut offset = 0usize;
     let mut sq = 0u8;
-    
+
     while sq < 64 {
         let square = unsafe { Square::from_index_unchecked(sq) };
         let mask = rook_mask(square);
         let bits = mask.count();
         let size = 1usize << bits;
-        
+
         let mut idx = 0usize;
         while idx < size {
             // Reconstruct occupancy from PEXT index
@@ -124,11 +124,11 @@ const fn init_rook_pext_attacks() -> [Bitboard; 102400] {
             attacks[offset + idx] = attack;
             idx += 1;
         }
-        
+
         offset += size;
         sq += 1;
     }
-    
+
     attacks
 }
 
@@ -136,13 +136,13 @@ const fn init_bishop_pext_attacks() -> [Bitboard; 5248] {
     let mut attacks = [Bitboard::EMPTY; 5248];
     let mut offset = 0usize;
     let mut sq = 0u8;
-    
+
     while sq < 64 {
         let square = unsafe { Square::from_index_unchecked(sq) };
         let mask = bishop_mask(square);
         let bits = mask.count();
         let size = 1usize << bits;
-        
+
         let mut idx = 0usize;
         while idx < size {
             let occ = pdep_const(idx as u64, mask.0);
@@ -150,11 +150,11 @@ const fn init_bishop_pext_attacks() -> [Bitboard; 5248] {
             attacks[offset + idx] = attack;
             idx += 1;
         }
-        
+
         offset += size;
         sq += 1;
     }
-    
+
     attacks
 }
 
@@ -163,7 +163,7 @@ const fn pdep_const(src: u64, mask: u64) -> u64 {
     let mut result = 0u64;
     let mut m = mask;
     let mut s = src;
-    
+
     while m != 0 {
         let lsb = m & m.wrapping_neg();
         if (s & 1) != 0 {
@@ -172,6 +172,6 @@ const fn pdep_const(src: u64, mask: u64) -> u64 {
         m &= m - 1;
         s >>= 1;
     }
-    
+
     result
 }

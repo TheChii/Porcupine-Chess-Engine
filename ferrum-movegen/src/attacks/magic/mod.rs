@@ -2,24 +2,24 @@
 
 #![allow(long_running_const_eval)]
 
-mod rook;
 mod bishop;
+mod rook;
 
 #[cfg(feature = "pext")]
 mod pext;
 
 // When PEXT is enabled, use PEXT-based attacks
 #[cfg(feature = "pext")]
-pub use pext::{rook_attacks_pext as rook_attacks, bishop_attacks_pext as bishop_attacks};
+pub use pext::{bishop_attacks_pext as bishop_attacks, rook_attacks_pext as rook_attacks};
 
 // Otherwise, use magic bitboard attacks
 #[cfg(not(feature = "pext"))]
-pub use rook::rook_attacks;
-#[cfg(not(feature = "pext"))]
 pub use bishop::bishop_attacks;
+#[cfg(not(feature = "pext"))]
+pub use rook::rook_attacks;
 
-pub use rook::ROOK_MAGICS;
 pub use bishop::BISHOP_MAGICS;
+pub use rook::ROOK_MAGICS;
 
 use crate::bitboard::Bitboard;
 use crate::types::Square;
@@ -60,35 +60,35 @@ pub const fn rook_mask(sq: Square) -> Bitboard {
     let file = sq.index() & 7;
     let rank = sq.index() >> 3;
     let mut mask = 0u64;
-    
+
     // North (exclude rank 8)
     let mut r = rank + 1;
     while r < 7 {
         mask |= 1u64 << (r * 8 + file);
         r += 1;
     }
-    
+
     // South (exclude rank 1)
     let mut r = rank;
     while r > 1 {
         r -= 1;
         mask |= 1u64 << (r * 8 + file);
     }
-    
+
     // East (exclude file H)
     let mut f = file + 1;
     while f < 7 {
         mask |= 1u64 << (rank * 8 + f);
         f += 1;
     }
-    
+
     // West (exclude file A)
     let mut f = file;
     while f > 1 {
         f -= 1;
         mask |= 1u64 << (rank * 8 + f);
     }
-    
+
     Bitboard(mask)
 }
 
@@ -97,7 +97,7 @@ pub const fn bishop_mask(sq: Square) -> Bitboard {
     let file = sq.index() & 7;
     let rank = sq.index() >> 3;
     let mut mask = 0u64;
-    
+
     // Northeast (exclude edges)
     let mut r = rank + 1;
     let mut f = file + 1;
@@ -106,7 +106,7 @@ pub const fn bishop_mask(sq: Square) -> Bitboard {
         r += 1;
         f += 1;
     }
-    
+
     // Northwest
     let mut r = rank + 1;
     let mut f = file;
@@ -115,7 +115,7 @@ pub const fn bishop_mask(sq: Square) -> Bitboard {
         mask |= 1u64 << (r * 8 + f);
         r += 1;
     }
-    
+
     // Southeast
     let mut r = rank;
     let mut f = file + 1;
@@ -124,7 +124,7 @@ pub const fn bishop_mask(sq: Square) -> Bitboard {
         mask |= 1u64 << (r * 8 + f);
         f += 1;
     }
-    
+
     // Southwest
     let mut r = rank;
     let mut f = file;
@@ -133,7 +133,7 @@ pub const fn bishop_mask(sq: Square) -> Bitboard {
         f -= 1;
         mask |= 1u64 << (r * 8 + f);
     }
-    
+
     Bitboard(mask)
 }
 
@@ -142,43 +142,51 @@ pub const fn rook_attacks_slow(sq: Square, occ: Bitboard) -> Bitboard {
     let file = sq.index() & 7;
     let rank = sq.index() >> 3;
     let mut attacks = 0u64;
-    
+
     // North
     let mut r = rank + 1;
     while r < 8 {
         let sq_bit = 1u64 << (r * 8 + file);
         attacks |= sq_bit;
-        if (occ.0 & sq_bit) != 0 { break; }
+        if (occ.0 & sq_bit) != 0 {
+            break;
+        }
         r += 1;
     }
-    
+
     // South
     let mut r = rank;
     while r > 0 {
         r -= 1;
         let sq_bit = 1u64 << (r * 8 + file);
         attacks |= sq_bit;
-        if (occ.0 & sq_bit) != 0 { break; }
+        if (occ.0 & sq_bit) != 0 {
+            break;
+        }
     }
-    
+
     // East
     let mut f = file + 1;
     while f < 8 {
         let sq_bit = 1u64 << (rank * 8 + f);
         attacks |= sq_bit;
-        if (occ.0 & sq_bit) != 0 { break; }
+        if (occ.0 & sq_bit) != 0 {
+            break;
+        }
         f += 1;
     }
-    
+
     // West
     let mut f = file;
     while f > 0 {
         f -= 1;
         let sq_bit = 1u64 << (rank * 8 + f);
         attacks |= sq_bit;
-        if (occ.0 & sq_bit) != 0 { break; }
+        if (occ.0 & sq_bit) != 0 {
+            break;
+        }
     }
-    
+
     Bitboard(attacks)
 }
 
@@ -187,18 +195,20 @@ pub const fn bishop_attacks_slow(sq: Square, occ: Bitboard) -> Bitboard {
     let file = sq.index() & 7;
     let rank = sq.index() >> 3;
     let mut attacks = 0u64;
-    
+
     // Northeast
     let mut r = rank + 1;
     let mut f = file + 1;
     while r < 8 && f < 8 {
         let sq_bit = 1u64 << (r * 8 + f);
         attacks |= sq_bit;
-        if (occ.0 & sq_bit) != 0 { break; }
+        if (occ.0 & sq_bit) != 0 {
+            break;
+        }
         r += 1;
         f += 1;
     }
-    
+
     // Northwest
     let mut r = rank + 1;
     let mut f = file;
@@ -206,10 +216,12 @@ pub const fn bishop_attacks_slow(sq: Square, occ: Bitboard) -> Bitboard {
         f -= 1;
         let sq_bit = 1u64 << (r * 8 + f);
         attacks |= sq_bit;
-        if (occ.0 & sq_bit) != 0 { break; }
+        if (occ.0 & sq_bit) != 0 {
+            break;
+        }
         r += 1;
     }
-    
+
     // Southeast
     let mut r = rank;
     let mut f = file + 1;
@@ -217,10 +229,12 @@ pub const fn bishop_attacks_slow(sq: Square, occ: Bitboard) -> Bitboard {
         r -= 1;
         let sq_bit = 1u64 << (r * 8 + f);
         attacks |= sq_bit;
-        if (occ.0 & sq_bit) != 0 { break; }
+        if (occ.0 & sq_bit) != 0 {
+            break;
+        }
         f += 1;
     }
-    
+
     // Southwest
     let mut r = rank;
     let mut f = file;
@@ -229,9 +243,11 @@ pub const fn bishop_attacks_slow(sq: Square, occ: Bitboard) -> Bitboard {
         f -= 1;
         let sq_bit = 1u64 << (r * 8 + f);
         attacks |= sq_bit;
-        if (occ.0 & sq_bit) != 0 { break; }
+        if (occ.0 & sq_bit) != 0 {
+            break;
+        }
     }
-    
+
     Bitboard(attacks)
 }
 

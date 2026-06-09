@@ -3,9 +3,9 @@
 //! Good move ordering is critical for alpha-beta pruning efficiency.
 //! Uses lazy selection sort to avoid full sort overhead.
 
-use crate::types::{Board, Move, Color, piece_value};
 use super::history::HistoryTable;
 use super::see;
+use crate::types::{piece_value, Board, Color, Move};
 
 /// Move score constants
 const TT_MOVE_BONUS: i32 = 1_000_000;
@@ -23,9 +23,7 @@ fn mvv_lva_score(board: &Board, m: Move) -> i32 {
     let attacker = board.piece_at(m.from()).map(|(p, _)| p);
 
     match (victim, attacker) {
-        (Some(v), Some(a)) => {
-            piece_value(v) * 10 - piece_value(a)
-        }
+        (Some(v), Some(a)) => piece_value(v) * 10 - piece_value(a),
         _ => 0,
     }
 }
@@ -33,8 +31,8 @@ fn mvv_lva_score(board: &Board, m: Move) -> i32 {
 /// Score a move for ordering (higher = search first)
 #[inline]
 pub fn score_move(
-    board: &Board, 
-    m: Move, 
+    board: &Board,
+    m: Move,
     tt_move: Option<Move>,
     killers: [Option<Move>; 2],
     counter_move: Option<Move>,
@@ -58,7 +56,7 @@ pub fn score_move(
         // MVV-LVA logic inlined to reuse victim for SEE
         let victim = board.piece_at(m.to()).map(|(p, _)| p);
         let attacker = board.piece_at(m.from()).map(|(p, _)| p);
-        
+
         let mvv_lva = match (victim, attacker) {
             (Some(v), Some(a)) => piece_value(v) * 10 - piece_value(a),
             _ => 0,
@@ -104,7 +102,7 @@ pub struct MovePicker<'a> {
     killers: [Option<Move>; 2],
     counter_move: Option<Move>,
     color: Color,
-    
+
     phase: i32,
     yielded_killers: usize,
 }
@@ -142,7 +140,8 @@ impl<'a> MovePicker<'a> {
     pub fn next(&mut self, history: &HistoryTable) -> Option<Move> {
         loop {
             match self.phase {
-                0 => { // Phase 1: TT Move
+                0 => {
+                    // Phase 1: TT Move
                     self.phase = 1;
                     if let Some(tt) = self.tt_move {
                         if let Some(idx) = self.moves.iter().position(|m| m == tt) {
@@ -151,21 +150,29 @@ impl<'a> MovePicker<'a> {
                         return Some(tt);
                     }
                 }
-                1 => { // Score captures
+                1 => {
+                    // Score captures
                     for i in 0..self.moves.len() {
                         let m = self.moves.as_slice()[i];
                         if self.scores[i] != i32::MIN && (m.is_capture() || m.is_promotion()) {
                             self.scores[i] = score_move(
-                                self.board, m, None, [None, None], None, history, self.color
+                                self.board,
+                                m,
+                                None,
+                                [None, None],
+                                None,
+                                history,
+                                self.color,
                             );
                         }
                     }
                     self.phase = 2;
                 }
-                2 => { // Phase 2: Yield captures iteratively
+                2 => {
+                    // Phase 2: Yield captures iteratively
                     let mut best_score = -i32::MAX;
                     let mut best_idx = None;
-                    
+
                     for i in 0..self.moves.len() {
                         let m = self.moves.as_slice()[i];
                         if self.scores[i] != i32::MIN && (m.is_capture() || m.is_promotion()) {
@@ -175,7 +182,7 @@ impl<'a> MovePicker<'a> {
                             }
                         }
                     }
-                    
+
                     if let Some(idx) = best_idx {
                         self.scores[idx] = i32::MIN; // Mark as yielded
                         return Some(self.moves.as_slice()[idx]);
@@ -183,14 +190,17 @@ impl<'a> MovePicker<'a> {
                         self.phase = 3;
                     }
                 }
-                3 => { // Phase 3: Yield killers
+                3 => {
+                    // Phase 3: Yield killers
                     while self.yielded_killers < 2 {
                         let k = self.killers[self.yielded_killers];
                         self.yielded_killers += 1;
-                        
+
                         if let Some(killer) = k {
                             if Some(killer) != self.tt_move {
-                                if let Some(idx) = self.moves.iter().position(|m| m == killer && !m.is_capture() && !m.is_promotion()) {
+                                if let Some(idx) = self.moves.iter().position(|m| {
+                                    m == killer && !m.is_capture() && !m.is_promotion()
+                                }) {
                                     if self.scores[idx] != i32::MIN {
                                         self.scores[idx] = i32::MIN; // Mark as yielded
                                         return Some(killer);
@@ -201,21 +211,29 @@ impl<'a> MovePicker<'a> {
                     }
                     self.phase = 4;
                 }
-                4 => { // Score quiets
+                4 => {
+                    // Score quiets
                     for i in 0..self.moves.len() {
                         let m = self.moves.as_slice()[i];
                         if self.scores[i] != i32::MIN && !m.is_capture() && !m.is_promotion() {
                             self.scores[i] = score_move(
-                                self.board, m, None, [None, None], self.counter_move, history, self.color
+                                self.board,
+                                m,
+                                None,
+                                [None, None],
+                                self.counter_move,
+                                history,
+                                self.color,
                             );
                         }
                     }
                     self.phase = 5;
                 }
-                5 => { // Phase 4: Yield quiets iteratively
+                5 => {
+                    // Phase 4: Yield quiets iteratively
                     let mut best_score = -i32::MAX;
                     let mut best_idx = None;
-                    
+
                     for i in 0..self.moves.len() {
                         let m = self.moves.as_slice()[i];
                         if self.scores[i] != i32::MIN && !m.is_capture() && !m.is_promotion() {
@@ -225,7 +243,7 @@ impl<'a> MovePicker<'a> {
                             }
                         }
                     }
-                    
+
                     if let Some(idx) = best_idx {
                         self.scores[idx] = i32::MIN; // Mark as yielded
                         return Some(self.moves.as_slice()[idx]);

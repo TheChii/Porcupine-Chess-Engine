@@ -7,7 +7,7 @@
 //! - Infinite search (until stop)
 //! - Soft/hard time limits for optimal iteration control
 
-use crate::types::{Depth, Color};
+use crate::types::{Color, Depth};
 use crate::uci::SearchParams;
 use std::time::Instant;
 
@@ -41,7 +41,7 @@ pub struct SearchLimits {
 impl SearchLimits {
     /// Default move overhead for timing safety (ms)
     pub const DEFAULT_MOVE_OVERHEAD: u64 = 50;
-    
+
     pub fn new() -> Self {
         Self {
             move_overhead: Self::DEFAULT_MOVE_OVERHEAD,
@@ -72,7 +72,7 @@ impl SearchLimits {
             move_overhead: Self::DEFAULT_MOVE_OVERHEAD,
         }
     }
-    
+
     /// Set move overhead (from UCI option)
     pub fn with_move_overhead(mut self, overhead: u64) -> Self {
         self.move_overhead = overhead;
@@ -144,10 +144,10 @@ impl TimeManager {
 
         if let Some(time) = time_left {
             let inc = increment.unwrap_or(0);
-            
+
             // Subtract overhead from available time
             let available = time.saturating_sub(move_overhead);
-            
+
             // Estimate moves remaining based on time situation
             let mtg = if let Some(movestogo) = limits.movestogo {
                 // Explicit moves to go (sudden death with X moves per period)
@@ -160,7 +160,7 @@ impl TimeManager {
                     // > 5 min: assume 40 moves remaining
                     40
                 } else if available > 120000 {
-                    // 2-5 min: assume 30 moves 
+                    // 2-5 min: assume 30 moves
                     30
                 } else if available > 60000 {
                     // 1-2 min: assume 25 moves
@@ -175,24 +175,25 @@ impl TimeManager {
                     // < 10s: panic mode, 10 moves
                     10
                 }
-            }.max(1);
-            
+            }
+            .max(1);
+
             // Base time allocation per move
             let base_time = available / mtg;
-            
+
             // Add most of increment to our budget (we'll get it back after moving)
-            let inc_bonus = (inc * 85) / 100;  // Use 85% of increment
-            
+            let inc_bonus = (inc * 85) / 100; // Use 85% of increment
+
             // Soft limit: base + increment bonus, but cap at reasonable portion of remaining time
             let soft = (base_time + inc_bonus).min(available / 3);
-            
+
             // Hard limit: allow up to 3x soft for critical moves, but never more than 50% of remaining
             let hard = (soft * 3).min(available / 2).max(soft);
-            
+
             // Minimum thresholds to avoid instant moves
             let soft = soft.max(100); // At least 100ms
             let hard = hard.max(200); // At least 200ms
-            
+
             return Self {
                 soft_limit: soft,
                 hard_limit: hard,
@@ -213,7 +214,7 @@ impl TimeManager {
             start_time: Some(Instant::now()),
         }
     }
-    
+
     /// Start the timer (call at search start)
     pub fn start(&mut self) {
         self.start_time = Some(Instant::now());
@@ -259,7 +260,7 @@ impl TimeManager {
         }
         self.elapsed() >= self.hard_limit
     }
-    
+
     /// Extend time limits (when search is in trouble, e.g., score dropped)
     /// factor > 1.0 extends time, factor < 1.0 reduces time
     #[allow(dead_code)]
@@ -270,17 +271,17 @@ impl TimeManager {
             self.hard_limit = ((self.hard_limit as f64) * factor.sqrt()) as u64;
         }
     }
-    
+
     /// Get the soft limit in ms
     pub fn soft_limit_ms(&self) -> u64 {
         self.soft_limit
     }
-    
+
     /// Get the hard limit in ms
     pub fn hard_limit_ms(&self) -> u64 {
         self.hard_limit
     }
-    
+
     /// Check if this is an infinite search
     pub fn is_infinite(&self) -> bool {
         self.infinite || self.ponder
@@ -289,7 +290,7 @@ impl TimeManager {
     /// Switch from ponder mode to normal search mode
     pub fn ponderhit(&mut self) {
         self.ponder = false;
-        // The time elapsed since the search started continues to count 
+        // The time elapsed since the search started continues to count
         // toward the calculated soft_limit and hard_limit.
     }
 }
@@ -303,7 +304,7 @@ impl Default for TimeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_fixed_movetime() {
         let limits = SearchLimits {
@@ -312,7 +313,7 @@ mod tests {
             ..Default::default()
         };
         let tm = TimeManager::from_limits(&limits, Color::White);
-        
+
         assert!(!tm.is_infinite());
         // 1000 - 50 overhead = 950 available
         // soft = 950 * 92% = 874
@@ -320,7 +321,7 @@ mod tests {
         assert_eq!(tm.soft_limit_ms(), 874);
         assert_eq!(tm.hard_limit_ms(), 931);
     }
-    
+
     #[test]
     fn test_time_control() {
         let limits = SearchLimits {
@@ -332,7 +333,7 @@ mod tests {
             ..Default::default()
         };
         let tm = TimeManager::from_limits(&limits, Color::White);
-        
+
         assert!(!tm.is_infinite());
         // 60000 - 10 = 59990 available
         // base = 59990 / 30 = ~1999
@@ -343,7 +344,7 @@ mod tests {
         // hard = min(3 * soft, available / 4)
         assert!(tm.hard_limit_ms() >= tm.soft_limit_ms());
     }
-    
+
     #[test]
     fn test_infinite() {
         let limits = SearchLimits {
@@ -351,7 +352,7 @@ mod tests {
             ..Default::default()
         };
         let tm = TimeManager::from_limits(&limits, Color::White);
-        
+
         assert!(tm.is_infinite());
         assert!(tm.can_start_iteration());
         assert!(!tm.should_stop());

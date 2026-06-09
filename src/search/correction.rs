@@ -56,10 +56,10 @@ impl CorrectionHistoryTable {
     pub fn update(&mut self, color: Color, pawn_hash: u64, depth: i32, diff: i32) {
         let c = color.index();
         let idx = (pawn_hash as usize) % CORRECTION_SIZE;
-        
+
         // Bonus scaled by depth (higher depth = more reliable)
         let bonus = (diff * depth).clamp(-CORRECTION_MAX / 4, CORRECTION_MAX / 4);
-        
+
         // Apply gravity update (same as history table)
         let old = i32::from(self.table[c][idx]);
         let new = old + bonus - old * bonus.abs() / CORRECTION_MAX;
@@ -91,14 +91,14 @@ mod tests {
     fn test_correction_update() {
         let mut table = CorrectionHistoryTable::new();
         let hash = 12345u64;
-        
+
         // Initial correction should be 0
         assert_eq!(table.get(Color::White, hash), 0);
-        
+
         // Update with positive diff (search was better than static eval)
         table.update(Color::White, hash, 5, 100);
         assert!(table.get(Color::White, hash) > 0);
-        
+
         // Different color shouldn't be affected
         assert_eq!(table.get(Color::Black, hash), 0);
     }
@@ -107,12 +107,12 @@ mod tests {
     fn test_correction_clamping() {
         let mut table = CorrectionHistoryTable::new();
         let hash = 67890u64;
-        
+
         // Many large updates should still be clamped
         for _ in 0..100 {
             table.update(Color::White, hash, 10, 500);
         }
-        
+
         let val = table.get(Color::White, hash);
         assert!(val <= CORRECTION_MAX as i32);
         assert!(val >= -CORRECTION_MAX as i32);

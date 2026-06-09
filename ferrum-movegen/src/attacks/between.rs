@@ -28,7 +28,7 @@ pub fn between(sq1: Square, sq2: Square) -> Bitboard {
 /// Generate line tables at compile time.
 const fn generate_lines() -> [[Bitboard; 64]; 64] {
     let mut lines = [[Bitboard::EMPTY; 64]; 64];
-    
+
     let mut sq1 = 0u8;
     while sq1 < 64 {
         let mut sq2 = 0u8;
@@ -37,10 +37,10 @@ const fn generate_lines() -> [[Bitboard; 64]; 64] {
             let r1 = sq1 >> 3;
             let f2 = sq2 & 7;
             let r2 = sq2 >> 3;
-            
+
             let df = (f2 as i8) - (f1 as i8);
             let dr = (r2 as i8) - (r1 as i8);
-            
+
             // Check if on same line
             let on_line = if df == 0 && dr != 0 {
                 true // Same file
@@ -51,15 +51,27 @@ const fn generate_lines() -> [[Bitboard; 64]; 64] {
             } else {
                 false
             };
-            
+
             if on_line {
                 let mut line_bb = 0u64;
-                
+
                 // Normalize direction
-                let df_norm = if df == 0 { 0i8 } else if df > 0 { 1 } else { -1 };
-                let dr_norm = if dr == 0 { 0i8 } else if dr > 0 { 1 } else { -1 };
+                let df_norm = if df == 0 {
+                    0i8
+                } else if df > 0 {
+                    1
+                } else {
+                    -1
+                };
+                let dr_norm = if dr == 0 {
+                    0i8
+                } else if dr > 0 {
+                    1
+                } else {
+                    -1
+                };
                 let delta = dr_norm * 8 + df_norm;
-                
+
                 // Go to one end of the line
                 let mut pos = sq1 as i8;
                 while pos >= 0 && pos < 64 {
@@ -67,43 +79,43 @@ const fn generate_lines() -> [[Bitboard; 64]; 64] {
                     let r = pos >> 3;
                     let new_f = f - df_norm;
                     let new_r = r - dr_norm;
-                    
+
                     if new_f < 0 || new_f > 7 || new_r < 0 || new_r > 7 {
                         break;
                     }
                     pos -= delta;
                 }
-                
+
                 // Walk the entire line
                 while pos >= 0 && pos < 64 {
                     line_bb |= 1u64 << pos;
-                    
+
                     let f = pos & 7;
                     let r = pos >> 3;
                     let new_f = f + df_norm;
                     let new_r = r + dr_norm;
-                    
+
                     if new_f < 0 || new_f > 7 || new_r < 0 || new_r > 7 {
                         break;
                     }
                     pos += delta;
                 }
-                
+
                 lines[sq1 as usize][sq2 as usize] = Bitboard(line_bb);
             }
-            
+
             sq2 += 1;
         }
         sq1 += 1;
     }
-    
+
     lines
 }
 
 /// Generate between tables at compile time.
 const fn generate_between() -> [[Bitboard; 64]; 64] {
     let mut between = [[Bitboard::EMPTY; 64]; 64];
-    
+
     let mut sq1 = 0u8;
     while sq1 < 64 {
         let mut sq2 = 0u8;
@@ -112,15 +124,15 @@ const fn generate_between() -> [[Bitboard; 64]; 64] {
                 sq2 += 1;
                 continue;
             }
-            
+
             let f1 = sq1 & 7;
             let r1 = sq1 >> 3;
             let f2 = sq2 & 7;
             let r2 = sq2 >> 3;
-            
+
             let df = (f2 as i8) - (f1 as i8);
             let dr = (r2 as i8) - (r1 as i8);
-            
+
             // Check if on same line
             let on_line = if df == 0 && dr != 0 {
                 true
@@ -131,28 +143,40 @@ const fn generate_between() -> [[Bitboard; 64]; 64] {
             } else {
                 false
             };
-            
+
             if on_line {
                 let mut between_bb = 0u64;
-                
-                let df_norm = if df == 0 { 0i8 } else if df > 0 { 1 } else { -1 };
-                let dr_norm = if dr == 0 { 0i8 } else if dr > 0 { 1 } else { -1 };
+
+                let df_norm = if df == 0 {
+                    0i8
+                } else if df > 0 {
+                    1
+                } else {
+                    -1
+                };
+                let dr_norm = if dr == 0 {
+                    0i8
+                } else if dr > 0 {
+                    1
+                } else {
+                    -1
+                };
                 let delta = dr_norm * 8 + df_norm;
-                
+
                 let mut pos = (sq1 as i8) + delta;
                 while pos != sq2 as i8 && pos >= 0 && pos < 64 {
                     between_bb |= 1u64 << pos;
                     pos += delta;
                 }
-                
+
                 between[sq1 as usize][sq2 as usize] = Bitboard(between_bb);
             }
-            
+
             sq2 += 1;
         }
         sq1 += 1;
     }
-    
+
     between
 }
 

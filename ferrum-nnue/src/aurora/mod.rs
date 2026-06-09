@@ -1,5 +1,5 @@
 //! Aurora NNUE: (768→256)×2→1 architecture
-//! 
+//!
 //! Features: 12 pieces × 64 squares = 768 inputs
 //! Uses dual perspective accumulators (white/black view) like HalfKP
 //! but with simpler feature set for faster evaluation.
@@ -13,12 +13,12 @@
 
 use std::io::Read;
 
-use crate::{Square, Piece, Color};
+use crate::{Color, Piece, Square};
 
 // Network dimensions for Aurora architecture
-pub const INPUTS: usize = 768;      // 12 pieces × 64 squares
-pub const HIDDEN: usize = 256;      // Hidden layer size
-pub const OUTPUTS: usize = 1;       // Single output
+pub const INPUTS: usize = 768; // 12 pieces × 64 squares
+pub const HIDDEN: usize = 256; // Hidden layer size
+pub const OUTPUTS: usize = 1; // Single output
 
 /// Aurora NNUE model (768→256)×2→1
 /// Uses heap-allocated weights to avoid stack overflow
@@ -53,7 +53,7 @@ impl AuroraModel {
             accumulators,
         }
     }
-    
+
     /// Add feature weights to accumulator
     #[inline]
     fn add_feature(&self, index: usize, outputs: &mut [i16; HIDDEN]) {
@@ -61,7 +61,7 @@ impl AuroraModel {
             *o += *w;
         }
     }
-    
+
     /// Subtract feature weights from accumulator
     #[inline]
     fn sub_feature(&self, index: usize, outputs: &mut [i16; HIDDEN]) {
@@ -136,9 +136,9 @@ impl<'a> AuroraState<'a> {
         // ClippedReLU and output computation
         // Aurora uses clamp to [0, 255] and squared clipped relu
         const QA: i32 = 255;
-        
+
         let mut sum: i32 = 0;
-        
+
         // Process side-to-move accumulator with first half of output weights
         // Aurora: v0 * v0 * weight, accumulated, then divided by 255 at end
         for i in 0..HIDDEN {
@@ -147,17 +147,17 @@ impl<'a> AuroraState<'a> {
             // Squared ClippedReLU: clamped * clamped * weight
             sum += clamped * clamped * weight;
         }
-        
+
         // Process opponent accumulator with second half of output weights
         for i in 0..HIDDEN {
             let clamped = (opp_acc[i].max(0).min(255)) as i32;
             let weight = self.model.output_weights[HIDDEN + i] as i32;
             sum += clamped * clamped * weight;
         }
-        
+
         // Divide by QA once, then add bias
         let unsquared = sum / QA + self.model.output_bias as i32;
-        
+
         // Scale to centipawns: (unsquared * 400) / (255 * 64) + 13
         (unsquared * 400) / (QA * 64) + 13
     }
@@ -176,18 +176,21 @@ pub fn load_model(path: &str) -> Result<AuroraModel, std::io::Error> {
 
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
-    
+
     // Allocate weights on heap to avoid stack overflow
     // Use unsafe to avoid stack allocation during initialization
     let mut input_weights: Box<[[i16; HIDDEN]; INPUTS]> = unsafe {
         let layout = std::alloc::Layout::new::<[[i16; HIDDEN]; INPUTS]>();
         let ptr = std::alloc::alloc_zeroed(layout) as *mut [[i16; HIDDEN]; INPUTS];
         if ptr.is_null() {
-            return Err(std::io::Error::new(std::io::ErrorKind::OutOfMemory, "Failed to allocate weights"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::OutOfMemory,
+                "Failed to allocate weights",
+            ));
         }
         Box::from_raw(ptr)
     };
-    
+
     // Read input layer weights: 768 × 256 i16 values
     // Note: Aurora stores as [768][256] (feature-major)
     for i in 0..INPUTS {
@@ -240,8 +243,16 @@ mod tests {
                     let sq = Square::from_index(sq_idx);
                     let white_idx = AuroraState::feature_index_white(piece, color, sq);
                     let black_idx = AuroraState::feature_index_black(piece, color, sq);
-                    assert!(white_idx < INPUTS, "White feature index {} out of range", white_idx);
-                    assert!(black_idx < INPUTS, "Black feature index {} out of range", black_idx);
+                    assert!(
+                        white_idx < INPUTS,
+                        "White feature index {} out of range",
+                        white_idx
+                    );
+                    assert!(
+                        black_idx < INPUTS,
+                        "Black feature index {} out of range",
+                        black_idx
+                    );
                 }
             }
         }
@@ -251,12 +262,9 @@ mod tests {
     fn test_feature_indices_symmetric() {
         // For the starting position, white and black should have mirrored feature sets
         // A white pawn on e2 from white's view = black pawn on e7 from black's view
-        let white_pawn_e2 = AuroraState::feature_index_white(
-            Piece::Pawn, Color::White, Square::E2
-        );
-        let black_pawn_e7_from_black = AuroraState::feature_index_black(
-            Piece::Pawn, Color::Black, Square::E7
-        );
+        let white_pawn_e2 = AuroraState::feature_index_white(Piece::Pawn, Color::White, Square::E2);
+        let black_pawn_e7_from_black =
+            AuroraState::feature_index_black(Piece::Pawn, Color::Black, Square::E7);
         // These should be the same index (both are "our pawn on e2" from each perspective)
         assert_eq!(white_pawn_e2, black_pawn_e7_from_black);
     }

@@ -1,7 +1,7 @@
 //! Move type and MoveList container.
 
+use crate::types::{Piece, Square};
 use core::fmt;
-use crate::types::{Square, Piece};
 
 /// Move flags for special move types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,11 +84,7 @@ impl Move {
     /// Create a new move.
     #[inline(always)]
     pub const fn new(from: Square, to: Square, flag: MoveFlag) -> Move {
-        Move(
-            (from.index() as u16)
-                | ((to.index() as u16) << 6)
-                | ((flag as u16) << 12)
-        )
+        Move((from.index() as u16) | ((to.index() as u16) << 6) | ((flag as u16) << 12))
     }
 
     /// Get the source square.
@@ -148,7 +144,7 @@ impl Move {
         s.push(from[1]);
         s.push(to[0]);
         s.push(to[1]);
-        
+
         if let Some(promo) = self.flag().promotion_piece() {
             s.push(match promo {
                 Piece::Knight => 'n',
@@ -158,7 +154,7 @@ impl Move {
                 _ => 'q',
             });
         }
-        
+
         s
     }
 }

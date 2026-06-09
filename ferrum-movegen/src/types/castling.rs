@@ -139,8 +139,8 @@ impl CastleRights {
     /// Convert to FEN string.
     pub fn to_fen(self) -> &'static str {
         const STRINGS: [&str; 16] = [
-            "-", "K", "Q", "KQ", "k", "Kk", "Qk", "KQk",
-            "q", "Kq", "Qq", "KQq", "kq", "Kkq", "Qkq", "KQkq",
+            "-", "K", "Q", "KQ", "k", "Kk", "Qk", "KQk", "q", "Kq", "Qq", "KQq", "kq", "Kkq",
+            "Qkq", "KQkq",
         ];
         STRINGS[self.0 as usize]
     }
@@ -152,12 +152,12 @@ impl CastleRights {
         // Precomputed masks for squares that affect castling
         const MASKS: [u8; 64] = {
             let mut masks = [0u8; 64];
-            masks[0] = 0b0010;   // A1 - white queenside rook
-            masks[4] = 0b0011;   // E1 - white king
-            masks[7] = 0b0001;   // H1 - white kingside rook
-            masks[56] = 0b1000;  // A8 - black queenside rook
-            masks[60] = 0b1100;  // E8 - black king
-            masks[63] = 0b0100;  // H8 - black kingside rook
+            masks[0] = 0b0010; // A1 - white queenside rook
+            masks[4] = 0b0011; // E1 - white king
+            masks[7] = 0b0001; // H1 - white kingside rook
+            masks[56] = 0b1000; // A8 - black queenside rook
+            masks[60] = 0b1100; // E8 - black king
+            masks[63] = 0b0100; // H8 - black kingside rook
             masks
         };
         CastleRights(MASKS[sq.index() as usize])
@@ -222,9 +222,14 @@ mod tests {
     fn test_castling_from_fen() {
         assert_eq!(CastleRights::from_fen("-"), Some(CastleRights::NONE));
         assert_eq!(CastleRights::from_fen("KQkq"), Some(CastleRights::ALL));
-        assert_eq!(CastleRights::from_fen("K"), Some(CastleRights::WHITE_KINGSIDE));
-        assert_eq!(CastleRights::from_fen("Kq"), 
-            Some(CastleRights::WHITE_KINGSIDE | CastleRights::BLACK_QUEENSIDE));
+        assert_eq!(
+            CastleRights::from_fen("K"),
+            Some(CastleRights::WHITE_KINGSIDE)
+        );
+        assert_eq!(
+            CastleRights::from_fen("Kq"),
+            Some(CastleRights::WHITE_KINGSIDE | CastleRights::BLACK_QUEENSIDE)
+        );
     }
 
     #[test]

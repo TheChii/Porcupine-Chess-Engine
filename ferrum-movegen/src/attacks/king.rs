@@ -15,12 +15,12 @@ pub fn king_attacks(sq: Square) -> Bitboard {
 /// Generate king attack table at compile time.
 const fn generate_king_attacks() -> [Bitboard; 64] {
     let mut attacks = [Bitboard::EMPTY; 64];
-    
+
     let mut sq = 0u8;
     while sq < 64 {
         let bb = 1u64 << sq;
         let mut attack = 0u64;
-        
+
         // King moves: 1 square in each direction
         // North
         attack |= bb << 8;
@@ -38,11 +38,11 @@ const fn generate_king_attacks() -> [Bitboard; 64] {
         attack |= (bb >> 7) & !Bitboard::FILE_A.0;
         // Southwest
         attack |= (bb >> 9) & !Bitboard::FILE_H.0;
-        
+
         attacks[sq as usize] = Bitboard(attack);
         sq += 1;
     }
-    
+
     attacks
 }
 

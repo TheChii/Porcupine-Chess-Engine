@@ -20,5 +20,5 @@
 mod polyglot;
 mod zobrist;
 
-pub use polyglot::{PolyglotBook, BookEntry};
+pub use polyglot::{BookEntry, PolyglotBook};
 pub use zobrist::polyglot_hash;

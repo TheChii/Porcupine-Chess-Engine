@@ -19,7 +19,10 @@ pub enum UciCommand {
     /// "ucinewgame" - New game starting
     UciNewGame,
     /// "position startpos/fen [moves ...]"
-    Position { fen: Option<String>, moves: Vec<String> },
+    Position {
+        fen: Option<String>,
+        moves: Vec<String>,
+    },
     /// "go ..." - Start searching
     Go(SearchParams),
     /// "stop" - Stop searching
@@ -38,7 +41,7 @@ pub enum UciCommand {
 pub fn parse_command(input: &str) -> UciCommand {
     let input = input.trim();
     let mut parts = input.split_whitespace();
-    
+
     match parts.next() {
         Some("uci") => UciCommand::Uci,
         Some("debug") => {
@@ -136,7 +139,7 @@ fn parse_position<'a>(parts: &mut impl Iterator<Item = &'a str>) -> UciCommand {
 
 fn parse_go<'a>(parts: &mut impl Iterator<Item = &'a str>) -> UciCommand {
     let mut params = SearchParams::new();
-    
+
     let tokens: Vec<&str> = parts.collect();
     let mut i = 0;
 

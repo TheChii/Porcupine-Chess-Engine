@@ -4,7 +4,7 @@
 //! Optimized for alpha-beta search with proper mate score handling.
 
 use std::fmt;
-use std::ops::{Add, Sub, Neg};
+use std::ops::{Add, Neg, Sub};
 
 /// Special score values
 /// Special score values

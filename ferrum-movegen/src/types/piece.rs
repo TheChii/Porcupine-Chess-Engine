@@ -107,8 +107,12 @@ pub enum Piece {
 impl Piece {
     /// All piece types.
     pub const ALL: [Piece; 6] = [
-        Piece::Pawn, Piece::Knight, Piece::Bishop,
-        Piece::Rook, Piece::Queen, Piece::King,
+        Piece::Pawn,
+        Piece::Knight,
+        Piece::Bishop,
+        Piece::Rook,
+        Piece::Queen,
+        Piece::King,
     ];
 
     /// Number of piece types.

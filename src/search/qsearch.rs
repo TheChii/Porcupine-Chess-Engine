@@ -7,22 +7,21 @@
 //!
 //! Uses compile-time node type specialization via the `NodeType` trait.
 
-use super::{Searcher, ordering};
-use super::negamax::{SearchResult, PV};
+use super::negamax::SearchResult;
 use super::node_types::NodeType;
-use super::see::{is_good_capture_with_victim};
-use crate::types::{Board, Score, Ply, Piece};
+use super::see::is_good_capture_with_victim;
+use super::{ordering, Searcher};
 use crate::eval::SearchEvaluator;
-use smallvec::smallvec;
+use crate::types::{Board, Piece, Ply, Score};
 
 /// Piece values for delta pruning (centipawns)
 const PIECE_VALUES: [i32; 6] = [
-    100,  // Pawn
-    320,  // Knight
-    330,  // Bishop
-    500,  // Rook
-    900,  // Queen
-    0,    // King (never captured)
+    100, // Pawn
+    320, // Knight
+    330, // Bishop
+    500, // Rook
+    900, // Queen
+    0,   // King (never captured)
 ];
 
 /// Delta margin: if stand_pat + best possible gain < alpha, prune
@@ -59,6 +58,9 @@ pub fn quiescence<NT: NodeType>(
     searcher.inc_qnodes();
     searcher.update_seldepth(ply);
 
+    let p = ply.raw() as usize;
+    searcher.pv_length[p] = 0;
+
     // Stand-pat evaluation using incremental evaluator
     #[cfg(debug_assertions)]
     searcher.inc_eval_calls();
@@ -73,7 +75,6 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: beta,
-            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -88,7 +89,6 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: stand_pat,
-            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -97,7 +97,6 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: alpha,
-            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -117,7 +116,6 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: alpha,
-            pv: smallvec![],
             stats: searcher.stats().clone(),
         };
     }
@@ -125,7 +123,6 @@ pub fn quiescence<NT: NodeType>(
     let mut move_picker = ordering::CapturePicker::new(board, moves);
 
     let mut best_score = stand_pat;
-    let mut pv: PV = smallvec![];
 
     while let Some(m) = move_picker.next() {
         if searcher.should_stop() {
@@ -139,10 +136,12 @@ pub fn quiescence<NT: NodeType>(
         // === Delta Pruning (Per-Move) ===
         // If this capture + safety margin can't raise alpha, skip it
         // Skip this check for promotions (they gain material)
-        if !in_check && !m.is_promotion()
-            && stand_pat.raw() + captured_value + DELTA_SAFETY < alpha.raw() {
-                continue;
-            }
+        if !in_check
+            && !m.is_promotion()
+            && stand_pat.raw() + captured_value + DELTA_SAFETY < alpha.raw()
+        {
+            continue;
+        }
 
         // === SEE Pruning ===
         // Skip captures that lose material according to SEE
@@ -151,21 +150,34 @@ pub fn quiescence<NT: NodeType>(
         }
 
         let new_board = board.make_move_new(m);
-        
+
         // Update evaluator incrementally for next depth
         if !evaluator.update_move(ply.raw() as usize, board, m) {
             evaluator.refresh(ply.next().raw() as usize, &new_board);
         }
 
-        let result = quiescence::<NT::Next>(searcher, evaluator, &new_board, ply.next(), qply + 1, -beta, -alpha);
+        let result = quiescence::<NT::Next>(
+            searcher,
+            evaluator,
+            &new_board,
+            ply.next(),
+            qply + 1,
+            -beta,
+            -alpha,
+        );
         let score = -result.score;
 
         if score > best_score {
             best_score = score;
 
-            pv.clear();
-            pv.push(m);
-            pv.extend(result.pv);
+            // Update Triangular PV Table
+            searcher.pv_table[p][0] = m;
+            let next_p = p + 1;
+            let len = searcher.pv_length[next_p];
+            for i in 0..len {
+                searcher.pv_table[p][i + 1] = searcher.pv_table[next_p][i];
+            }
+            searcher.pv_length[p] = len + 1;
 
             if score > alpha {
                 alpha = score;
@@ -179,7 +191,6 @@ pub fn quiescence<NT: NodeType>(
     SearchResult {
         best_move: None,
         score: best_score,
-        pv,
         stats: searcher.stats().clone(),
     }
 }

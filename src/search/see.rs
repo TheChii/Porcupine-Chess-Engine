@@ -3,8 +3,8 @@
 //! Determines if a capture sequence is winning, losing, or neutral.
 //! Uses fixed-size arrays to avoid allocations.
 
-use crate::types::{Board, Move, Piece, Color, Bitboard};
-use movegen::attacks::{pawn_attacks, knight_attacks, king_attacks, bishop_attacks, rook_attacks};
+use crate::types::{Bitboard, Board, Color, Move, Piece};
+use movegen::attacks::{bishop_attacks, king_attacks, knight_attacks, pawn_attacks, rook_attacks};
 
 /// Piece values for SEE (using lower values for faster cutoffs)
 const SEE_VALUES: [i32; 6] = [100, 300, 300, 500, 900, 20000]; // P, N, B, R, Q, K
@@ -17,9 +17,21 @@ fn see_piece_value(piece: Piece) -> i32 {
 
 /// Get least valuable attacker of a square
 #[inline]
-fn get_lva(board: &Board, sq: movegen::Square, side: Color, occupied: Bitboard) -> Option<(movegen::Square, Piece)> {
+fn get_lva(
+    board: &Board,
+    sq: movegen::Square,
+    side: Color,
+    occupied: Bitboard,
+) -> Option<(movegen::Square, Piece)> {
     // Check each piece type from least to most valuable
-    for piece in [Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen, Piece::King] {
+    for piece in [
+        Piece::Pawn,
+        Piece::Knight,
+        Piece::Bishop,
+        Piece::Rook,
+        Piece::Queen,
+        Piece::King,
+    ] {
         let attackers = get_piece_attacks(board, sq, piece, side, occupied);
         if attackers.any() {
             return Some((unsafe { attackers.lsb_unchecked() }, piece));
@@ -30,9 +42,15 @@ fn get_lva(board: &Board, sq: movegen::Square, side: Color, occupied: Bitboard) 
 
 /// Get attacks from a specific piece type to a square
 #[inline]
-fn get_piece_attacks(board: &Board, target: movegen::Square, piece: Piece, side: Color, occupied: Bitboard) -> Bitboard {
+fn get_piece_attacks(
+    board: &Board,
+    target: movegen::Square,
+    piece: Piece,
+    side: Color,
+    occupied: Bitboard,
+) -> Bitboard {
     let our_pieces = board.piece_bb(piece) & board.color_bb(side) & occupied;
-    
+
     match piece {
         Piece::Pawn => {
             // For pawn attacks TO a square, we need attacks FROM the opposite color
@@ -40,21 +58,13 @@ fn get_piece_attacks(board: &Board, target: movegen::Square, piece: Piece, side:
             let attacks_to_target = pawn_attacks(enemy_color, target);
             our_pieces & attacks_to_target
         }
-        Piece::Knight => {
-            our_pieces & knight_attacks(target)
-        }
-        Piece::Bishop => {
-            our_pieces & bishop_attacks(target, occupied)
-        }
-        Piece::Rook => {
-            our_pieces & rook_attacks(target, occupied)
-        }
+        Piece::Knight => our_pieces & knight_attacks(target),
+        Piece::Bishop => our_pieces & bishop_attacks(target, occupied),
+        Piece::Rook => our_pieces & rook_attacks(target, occupied),
         Piece::Queen => {
             our_pieces & (bishop_attacks(target, occupied) | rook_attacks(target, occupied))
         }
-        Piece::King => {
-            our_pieces & king_attacks(target)
-        }
+        Piece::King => our_pieces & king_attacks(target),
     }
 }
 
@@ -68,9 +78,9 @@ fn get_piece_attacks(board: &Board, target: movegen::Square, piece: Piece, side:
 pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
     let from = mv.from();
     let to = mv.to();
-    
+
     let attacker = board.piece_at(from).map(|(p, _)| p);
-    
+
     let (attacker_piece, mut gain) = match (attacker, victim) {
         (Some(a), Some(v)) => (a, see_piece_value(v)),
         (Some(a), None) => {
@@ -100,7 +110,7 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
     let mut occupied = board.occupied() ^ Bitboard::from_square(from);
     let mut side = !board.turn();
     let mut last_value = see_piece_value(attacker_piece);
-    
+
     // Simulate the exchange
     loop {
         if let Some((sq, piece)) = get_lva(board, to, side, occupied) {
@@ -109,7 +119,7 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
             last_value = see_piece_value(piece);
             depth += 1;
             side = !side;
-            
+
             // King capture ends the sequence
             if piece == Piece::King {
                 break;
@@ -118,13 +128,13 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
             break;
         }
     }
-    
+
     // Negamax-style evaluation from the end
     while depth > 1 {
         depth -= 1;
         gains[depth - 1] = gains[depth - 1].max(-gains[depth]);
     }
-    
+
     gains[0]
 }
 

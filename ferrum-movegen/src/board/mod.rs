@@ -1,14 +1,13 @@
 //! Board state representation.
 
 mod fen;
-mod zobrist;
 mod make_move;
-
+mod zobrist;
 
 pub use zobrist::ZOBRIST;
 
 use crate::bitboard::Bitboard;
-use crate::types::{Square, Piece, Color, CastleRights};
+use crate::types::{CastleRights, Color, Piece, Square};
 
 /// Chess board state.
 #[derive(Clone, Copy)]
@@ -178,10 +177,10 @@ impl Board {
     /// Get the piece at a square.
     pub fn piece_at(&self, sq: Square) -> Option<(Piece, Color)> {
         let sq_bb = Bitboard::from_square(sq);
-        
+
         // Fast fail using computed occupied
         if ((self.colors[0] | self.colors[1]) & sq_bb).is_empty() {
-             return None;
+            return None;
         }
 
         let color = if (self.colors[0] & sq_bb).any() {
@@ -189,13 +188,23 @@ impl Board {
         } else {
             Color::Black
         };
-        
+
         // Unrolled piece check (ordered by frequency)
-        if (self.pieces[0] & sq_bb).any() { return Some((Piece::Pawn, color)); }
-        if (self.pieces[1] & sq_bb).any() { return Some((Piece::Knight, color)); }
-        if (self.pieces[2] & sq_bb).any() { return Some((Piece::Bishop, color)); }
-        if (self.pieces[3] & sq_bb).any() { return Some((Piece::Rook, color)); }
-        if (self.pieces[4] & sq_bb).any() { return Some((Piece::Queen, color)); }
+        if (self.pieces[0] & sq_bb).any() {
+            return Some((Piece::Pawn, color));
+        }
+        if (self.pieces[1] & sq_bb).any() {
+            return Some((Piece::Knight, color));
+        }
+        if (self.pieces[2] & sq_bb).any() {
+            return Some((Piece::Bishop, color));
+        }
+        if (self.pieces[3] & sq_bb).any() {
+            return Some((Piece::Rook, color));
+        }
+        if (self.pieces[4] & sq_bb).any() {
+            return Some((Piece::Queen, color));
+        }
         return Some((Piece::King, color));
     }
 
@@ -253,17 +262,19 @@ impl Board {
 
     /// Compute attackers to a square.
     pub fn attackers_to(&self, sq: Square, occ: Bitboard) -> Bitboard {
-        use crate::attacks::{pawn_attacks, knight_attacks, king_attacks, bishop_attacks, rook_attacks};
-        
+        use crate::attacks::{
+            bishop_attacks, king_attacks, knight_attacks, pawn_attacks, rook_attacks,
+        };
+
         let bishops = self.pieces[Piece::Bishop.index()] | self.pieces[Piece::Queen.index()];
         let rooks = self.pieces[Piece::Rook.index()] | self.pieces[Piece::Queen.index()];
-        
+
         (pawn_attacks(Color::Black, sq) & self.piece_color_bb(Piece::Pawn, Color::White))
-        | (pawn_attacks(Color::White, sq) & self.piece_color_bb(Piece::Pawn, Color::Black))
-        | (knight_attacks(sq) & self.pieces[Piece::Knight.index()])
-        | (king_attacks(sq) & self.pieces[Piece::King.index()])
-        | (bishop_attacks(sq, occ) & bishops)
-        | (rook_attacks(sq, occ) & rooks)
+            | (pawn_attacks(Color::White, sq) & self.piece_color_bb(Piece::Pawn, Color::Black))
+            | (knight_attacks(sq) & self.pieces[Piece::Knight.index()])
+            | (king_attacks(sq) & self.pieces[Piece::King.index()])
+            | (bishop_attacks(sq, occ) & bishops)
+            | (rook_attacks(sq, occ) & rooks)
     }
 
     /// Compute checkers for the side to move.

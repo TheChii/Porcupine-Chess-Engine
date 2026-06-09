@@ -8,7 +8,7 @@
 //! - Depth-preferred replacement with age-based eviction
 //! - Lock-free for Lazy SMP multi-threading support
 
-use crate::types::{Move, Score, Depth, Hash};
+use crate::types::{Depth, Hash, Move, Score};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 
 /// Type of bound stored in TT entry
@@ -76,7 +76,7 @@ impl TTEntry {
             bound_and_age: (bound as u8) | ((generation & 0x3F) << 2),
         }
     }
-    
+
     /// Pack entry into a u64 for atomic storage
     /// Layout: key(16) | best_move(16) | score(16) | depth(8) | bound_and_age(8)
     #[inline]
@@ -87,7 +87,7 @@ impl TTEntry {
             | ((self.depth as u8 as u64) << 8)
             | (self.bound_and_age as u64)
     }
-    
+
     /// Unpack entry from a u64
     #[inline]
     pub fn from_u64(raw: u64) -> Self {
@@ -184,9 +184,7 @@ impl TranspositionTable {
         let num_entries = num_entries.next_power_of_two() / 2;
         let num_entries = num_entries.max(1024); // Minimum 1024 entries
 
-        let entries = (0..num_entries)
-            .map(|_| AtomicU64::new(0))
-            .collect();
+        let entries = (0..num_entries).map(|_| AtomicU64::new(0)).collect();
 
         Self {
             entries,
@@ -211,7 +209,7 @@ impl TranspositionTable {
     pub fn size_mb(&self) -> usize {
         self.size_mb
     }
-    
+
     /// Get current generation
     #[inline]
     pub fn generation(&self) -> u8 {
@@ -238,7 +236,7 @@ impl TranspositionTable {
         if raw == 0 {
             return None;
         }
-        
+
         let entry = TTEntry::from_u64(raw);
         if entry.matches(hash) && !entry.is_empty() {
             Some(entry)
@@ -307,17 +305,17 @@ impl TranspositionTable {
     pub fn prefetch(&self, hash: Hash) {
         let idx = self.index(hash);
         let ptr = self.entries.as_ptr().wrapping_add(idx) as *const i8;
-        
+
         #[cfg(target_arch = "x86_64")]
         unsafe {
             std::arch::x86_64::_mm_prefetch(ptr, std::arch::x86_64::_MM_HINT_T0);
         }
-        
+
         #[cfg(target_arch = "x86")]
         unsafe {
             std::arch::x86::_mm_prefetch(ptr, std::arch::x86::_MM_HINT_T0);
         }
-        
+
         // No-op on other architectures
         #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
         let _ = ptr;
@@ -333,7 +331,7 @@ impl Default for TranspositionTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Square, MoveFlag};
+    use crate::types::{MoveFlag, Square};
 
     #[test]
     fn test_tt_basic() {
@@ -354,17 +352,13 @@ mod tests {
 
     #[test]
     fn test_move_encoding() {
-        let mv = Move::new(
-            Square::E2,
-            Square::E4,
-            MoveFlag::DoublePawnPush,
-        );
+        let mv = Move::new(Square::E2, Square::E4, MoveFlag::DoublePawnPush);
         let encoded = encode_move(Some(mv));
         let decoded = decode_move(encoded).unwrap();
         assert_eq!(mv.from(), decoded.from());
         assert_eq!(mv.to(), decoded.to());
     }
-    
+
     #[test]
     fn test_entry_pack_unpack() {
         let entry = TTEntry::new(
@@ -375,10 +369,10 @@ mod tests {
             BoundType::LowerBound,
             5,
         );
-        
+
         let packed = entry.to_u64();
         let unpacked = TTEntry::from_u64(packed);
-        
+
         assert_eq!(entry.key, unpacked.key);
         assert_eq!(entry.score, unpacked.score);
         assert_eq!(entry.depth, unpacked.depth);

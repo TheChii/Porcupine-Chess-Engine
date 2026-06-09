@@ -1,18 +1,18 @@
 //! Move generation logic.
 
+mod king;
+mod knights;
+mod legality;
 mod moves;
 mod pawns;
-mod knights;
-mod king;
 mod sliders;
-mod legality;
 
-pub use moves::{Move, MoveFlag, MoveList, ScoredMove, MoveSink, MoveCounter};
+pub use moves::{Move, MoveCounter, MoveFlag, MoveList, MoveSink, ScoredMove};
 
+use crate::attacks::{between, bishop_attacks, king_attacks, knight_attacks, rook_attacks};
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::types::{Color, Piece, Square};
-use crate::attacks::{knight_attacks, king_attacks, bishop_attacks, rook_attacks, between};
 
 impl Board {
     /// Generate all legal moves.
@@ -47,7 +47,7 @@ impl Board {
     fn generate_all_moves<M: MoveSink>(&self, moves: &mut M) {
         let pinned = self.compute_pinned();
         let target = !self.us(); // Can move to empty or enemy squares
-        
+
         self.generate_pawn_moves(moves, Bitboard::UNIVERSE, pinned);
         self.generate_knight_moves(moves, target, pinned);
         self.generate_bishop_moves(moves, target, pinned);
@@ -100,7 +100,7 @@ impl Board {
     fn generate_captures_impl<M: MoveSink>(&self, moves: &mut M) {
         let pinned = self.compute_pinned();
         let target = self.them(); // Only enemy squares
-        
+
         self.generate_pawn_moves(moves, target, pinned);
         self.generate_knight_moves(moves, target, pinned);
         self.generate_bishop_moves(moves, target, pinned);
@@ -113,7 +113,7 @@ impl Board {
     fn generate_quiets_impl<M: MoveSink>(&self, moves: &mut M) {
         let pinned = self.compute_pinned();
         let target = !self.occupied(); // Only empty squares
-        
+
         self.generate_pawn_moves(moves, target, pinned);
         self.generate_knight_moves(moves, target, pinned);
         self.generate_bishop_moves(moves, target, pinned);
@@ -126,22 +126,22 @@ impl Board {
     fn generate_evasions<M: MoveSink>(&self, moves: &mut M) {
         let king_sq = self.king_square(self.turn());
         let checker_sq = unsafe { self.checkers().lsb_unchecked() };
-        
+
         // Squares that block or capture the checker
         let block_mask = between(king_sq, checker_sq) | self.checkers();
         let pinned = self.compute_pinned();
-        
+
         // Pawn moves that block/capture
         self.generate_pawn_moves(moves, block_mask, pinned);
-        
+
         // Knight moves that block/capture
         self.generate_knight_moves(moves, block_mask & !self.us(), pinned);
-        
+
         // Slider moves that block/capture
         self.generate_bishop_moves(moves, block_mask & !self.us(), pinned);
         self.generate_rook_moves(moves, block_mask & !self.us(), pinned);
         self.generate_queen_moves(moves, block_mask & !self.us(), pinned);
-        
+
         // King moves (always generated)
         self.generate_king_moves(moves);
     }
@@ -152,13 +152,13 @@ impl Board {
         let occ = self.occupied();
         let us = self.us();
         let them = self.them();
-        
+
         let mut pinned = Bitboard::EMPTY;
-        
+
         // Diagonal pinners
         let diag_sliders = (self.piece_bb(Piece::Bishop) | self.piece_bb(Piece::Queen)) & them;
         let potential_diag = bishop_attacks(king_sq, Bitboard::EMPTY) & diag_sliders;
-        
+
         for pinner in potential_diag {
             let between_bb = between(king_sq, pinner);
             let blockers = between_bb & occ;
@@ -166,11 +166,11 @@ impl Board {
                 pinned |= blockers;
             }
         }
-        
+
         // Orthogonal pinners
         let ortho_sliders = (self.piece_bb(Piece::Rook) | self.piece_bb(Piece::Queen)) & them;
         let potential_ortho = rook_attacks(king_sq, Bitboard::EMPTY) & ortho_sliders;
-        
+
         for pinner in potential_ortho {
             let between_bb = between(king_sq, pinner);
             let blockers = between_bb & occ;
@@ -178,14 +178,19 @@ impl Board {
                 pinned |= blockers;
             }
         }
-        
+
         pinned
     }
 
     /// Generate knight moves.
-    fn generate_knight_moves<M: MoveSink>(&self, moves: &mut M, target: Bitboard, pinned: Bitboard) {
+    fn generate_knight_moves<M: MoveSink>(
+        &self,
+        moves: &mut M,
+        target: Bitboard,
+        pinned: Bitboard,
+    ) {
         let knights = self.piece_color_bb(Piece::Knight, self.turn()) & !pinned;
-        
+
         for from in knights {
             let attacks = knight_attacks(from) & target;
             for to in attacks {
@@ -200,19 +205,24 @@ impl Board {
     }
 
     /// Generate bishop moves.
-    fn generate_bishop_moves<M: MoveSink>(&self, moves: &mut M, target: Bitboard, pinned: Bitboard) {
+    fn generate_bishop_moves<M: MoveSink>(
+        &self,
+        moves: &mut M,
+        target: Bitboard,
+        pinned: Bitboard,
+    ) {
         let bishops = self.piece_color_bb(Piece::Bishop, self.turn());
         let occ = self.occupied();
         let king_sq = self.king_square(self.turn());
-        
+
         for from in bishops {
             let mut attacks = bishop_attacks(from, occ) & target;
-            
+
             // If pinned, can only move along pin ray
             if pinned.contains(from) {
                 attacks &= crate::attacks::line(king_sq, from);
             }
-            
+
             for to in attacks {
                 let flag = if self.them().contains(to) {
                     MoveFlag::Capture
@@ -229,14 +239,14 @@ impl Board {
         let rooks = self.piece_color_bb(Piece::Rook, self.turn());
         let occ = self.occupied();
         let king_sq = self.king_square(self.turn());
-        
+
         for from in rooks {
             let mut attacks = rook_attacks(from, occ) & target;
-            
+
             if pinned.contains(from) {
                 attacks &= crate::attacks::line(king_sq, from);
             }
-            
+
             for to in attacks {
                 let flag = if self.them().contains(to) {
                     MoveFlag::Capture
@@ -253,14 +263,14 @@ impl Board {
         let queens = self.piece_color_bb(Piece::Queen, self.turn());
         let occ = self.occupied();
         let king_sq = self.king_square(self.turn());
-        
+
         for from in queens {
             let mut attacks = (bishop_attacks(from, occ) | rook_attacks(from, occ)) & target;
-            
+
             if pinned.contains(from) {
                 attacks &= crate::attacks::line(king_sq, from);
             }
-            
+
             for to in attacks {
                 let flag = if self.them().contains(to) {
                     MoveFlag::Capture
@@ -276,10 +286,10 @@ impl Board {
     fn generate_king_moves<M: MoveSink>(&self, moves: &mut M) {
         let king_sq = self.king_square(self.turn());
         let occ = self.occupied();
-        
+
         // Normal king moves
         let attacks = king_attacks(king_sq) & !self.us();
-        
+
         for to in attacks {
             // Check if target square is attacked by enemy
             let new_occ = (occ ^ Bitboard::from_square(king_sq)) | Bitboard::from_square(to);
@@ -292,7 +302,7 @@ impl Board {
                 moves.push(Move::new(king_sq, to, flag));
             }
         }
-        
+
         // Castling (only if not in check)
         if self.checkers().is_empty() {
             self.generate_castling_moves(moves, king_sq);
@@ -303,7 +313,7 @@ impl Board {
     fn generate_castling_moves<M: MoveSink>(&self, moves: &mut M, king_sq: Square) {
         let us = self.turn();
         let occ = self.occupied();
-        
+
         if us == Color::White {
             // Kingside
             if self.castling().has_white_kingside() {
@@ -365,9 +375,9 @@ mod tests {
 
     #[test]
     fn test_kiwipete_moves() {
-        let board = Board::from_fen(
-            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"
-        ).unwrap();
+        let board =
+            Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
+                .unwrap();
         let moves = board.generate_moves();
         // Kiwipete has 48 legal moves
         assert_eq!(moves.len(), 48);
