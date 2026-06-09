@@ -75,7 +75,6 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: beta,
-            stats: searcher.stats().clone(),
         };
     }
 
@@ -89,7 +88,6 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: stand_pat,
-            stats: searcher.stats().clone(),
         };
     }
 
@@ -97,7 +95,6 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: alpha,
-            stats: searcher.stats().clone(),
         };
     }
 
@@ -116,7 +113,6 @@ pub fn quiescence<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: alpha,
-            stats: searcher.stats().clone(),
         };
     }
 
@@ -191,6 +187,5 @@ pub fn quiescence<NT: NodeType>(
     SearchResult {
         best_move: None,
         score: best_score,
-        stats: searcher.stats().clone(),
     }
 }

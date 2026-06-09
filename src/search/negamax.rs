@@ -11,7 +11,7 @@
 
 use super::node_types::{NodeType, OffPV};
 use super::tt::BoundType;
-use super::{ordering, qsearch, see, SearchStats, Searcher};
+use super::{ordering, qsearch, see, Searcher};
 use crate::eval::SearchEvaluator;
 use crate::types::{Board, Depth, Move, Piece, Ply, Score, SCORE_MATE};
 
@@ -39,11 +39,10 @@ fn get_lmr(depth: i32, move_idx: usize) -> i32 {
 }
 
 /// Result from a search
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SearchResult {
     pub best_move: Option<Move>,
     pub score: Score,
-    pub stats: SearchStats,
 }
 
 /// Main negamax search function with TT integration and null move pruning.
@@ -94,7 +93,6 @@ pub fn search<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: draw_score,
-            stats: searcher.stats().clone(),
         };
     }
 
@@ -108,8 +106,7 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: None,
                 score: alpha,
-                stats: searcher.stats().clone(),
-            };
+                };
         }
     }
 
@@ -119,8 +116,7 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: None,
                 score: beta,
-                stats: searcher.stats().clone(),
-            };
+                };
         }
     }
 
@@ -144,8 +140,7 @@ pub fn search<NT: NodeType>(
                     return SearchResult {
                         best_move: tt_move,
                         score: tt_score,
-                        stats: searcher.stats().clone(),
-                    };
+                                };
                 }
                 BoundType::LowerBound => {
                     if !NT::PV && tt_score >= beta {
@@ -156,8 +151,7 @@ pub fn search<NT: NodeType>(
                         return SearchResult {
                             best_move: tt_move,
                             score: tt_score,
-                            stats: searcher.stats().clone(),
-                        };
+                                        };
                     }
                     // Tighten alpha for PV nodes and when score < beta
                     if tt_score > alpha {
@@ -173,8 +167,7 @@ pub fn search<NT: NodeType>(
                         return SearchResult {
                             best_move: tt_move,
                             score: tt_score,
-                            stats: searcher.stats().clone(),
-                        };
+                                        };
                     }
                     // Tighten beta for PV nodes and when score > alpha
                     if tt_score < beta {
@@ -191,7 +184,6 @@ pub fn search<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score: Score::draw(),
-            stats: searcher.stats().clone(),
         };
     }
 
@@ -234,8 +226,7 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: None,
                 score: eval - margin, // Soft cap to avoid crazy scores
-                stats: searcher.stats().clone(),
-            };
+                };
         }
     }
 
@@ -261,8 +252,7 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: result.best_move,
                 score: beta,
-                stats: searcher.stats().clone(),
-            };
+                };
         }
     }
 
@@ -305,8 +295,7 @@ pub fn search<NT: NodeType>(
                 return SearchResult {
                     best_move: None,
                     score: beta, // Fail high
-                    stats: searcher.stats().clone(),
-                };
+                        };
             }
         }
     }
@@ -329,7 +318,6 @@ pub fn search<NT: NodeType>(
         return SearchResult {
             best_move: None,
             score,
-            stats: searcher.stats().clone(),
         };
     }
 
@@ -562,17 +550,33 @@ pub fn search<NT: NodeType>(
                 evaluator.refresh(ply.next().raw() as usize, &new_board);
             }
 
-            result = search::<NT::Next>(
+            // First: null-window re-search at full depth
+            result = search::<OffPV>(
                 searcher,
                 evaluator,
                 &new_board,
                 Depth::new((depth.raw() - 1 + extension).max(0)),
                 ply.next(),
-                -beta,
+                -alpha - Score::cp(1),
                 -alpha,
                 Some(m),
             );
             score = -result.score;
+
+            // If null-window also fails high on PV nodes, do full-window re-search
+            if NT::PV && score > alpha && score < beta && !searcher.should_stop() {
+                result = search::<NT::Next>(
+                    searcher,
+                    evaluator,
+                    &new_board,
+                    Depth::new((depth.raw() - 1 + extension).max(0)),
+                    ply.next(),
+                    -beta,
+                    -alpha,
+                    Some(m),
+                );
+                score = -result.score;
+            }
         }
 
         if searcher.should_stop() {
@@ -655,6 +659,5 @@ pub fn search<NT: NodeType>(
     SearchResult {
         best_move,
         score: best_score,
-        stats: searcher.stats().clone(),
     }
 }

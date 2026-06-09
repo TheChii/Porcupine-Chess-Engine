@@ -464,11 +464,21 @@ impl Searcher {
 
                 // Check if score is within window
                 if result.score <= alpha {
-                    // Fail-low: widen alpha
-                    alpha = Score::neg_infinity();
+                    // Fail-low: widen alpha gradually, keep beta
+                    // Center beta between old alpha and beta to narrow the upper bound
+                    beta = Score::cp((alpha.raw() + beta.raw()) / 2);
+                    alpha = if delta < 500 {
+                        (best_score - Score::cp(delta)).max(Score::neg_infinity())
+                    } else {
+                        Score::neg_infinity()
+                    };
                 } else if result.score >= beta {
-                    // Fail-high: widen beta
-                    beta = Score::infinity();
+                    // Fail-high: widen beta gradually, keep alpha
+                    beta = if delta < 500 {
+                        (best_score + Score::cp(delta)).min(Score::infinity())
+                    } else {
+                        Score::infinity()
+                    };
                 } else {
                     // Score within window, accept result
                     if result.best_move.is_some() {
@@ -480,10 +490,6 @@ impl Searcher {
 
                 // Widen window for next attempt
                 delta *= 2;
-                if delta > 500 {
-                    alpha = Score::neg_infinity();
-                    beta = Score::infinity();
-                }
             }
 
             self.stats.depth = Depth::new(depth);
@@ -533,8 +539,6 @@ impl Searcher {
         SearchResult {
             best_move: self.best_move,
             score: best_score,
-            // pv field will be removed from SearchResult
-            stats: self.stats.clone(),
         }
     }
 
