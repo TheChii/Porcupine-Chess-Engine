@@ -45,12 +45,13 @@ impl UciHandler {
         // Load embedded NNUE model (compiled into the binary)
         match nnue::load_embedded_model() {
             Ok(model) => {
-                println!("info string NNUE loaded: HalfKP (40960->256x2->32->32->1)");
+                // Log to stderr instead of stdout to avoid breaking strict UCI protocol on startup
+                eprintln!("info string NNUE loaded: HalfKP (40960->256x2->32->32->1)");
                 searcher.set_nnue(Some(model));
             }
             Err(e) => {
-                println!("info string NNUE load failed: {:?}", e);
-                println!("info string Using material eval");
+                eprintln!("info string NNUE load failed: {:?}", e);
+                eprintln!("info string Using material eval");
             }
         }
 
