@@ -149,7 +149,7 @@ pub fn search<NT: NodeType>(
                     };
                 }
                 BoundType::LowerBound => {
-                    if tt_score >= beta {
+                    if !NT::PV && tt_score >= beta {
                         return SearchResult {
                             best_move: tt_move,
                             score: tt_score,
@@ -157,18 +157,23 @@ pub fn search<NT: NodeType>(
                             stats: searcher.stats().clone(),
                         };
                     }
+                    // Tighten alpha for PV nodes and when score < beta
                     if tt_score > alpha {
                         alpha = tt_score;
                     }
                 }
                 BoundType::UpperBound => {
-                    if tt_score <= alpha {
+                    if !NT::PV && tt_score <= alpha {
                         return SearchResult {
                             best_move: tt_move,
                             score: tt_score,
                             pv: tt_move.map(|m| smallvec![m]).unwrap_or_default(),
                             stats: searcher.stats().clone(),
                         };
+                    }
+                    // Tighten beta for PV nodes and when score > alpha
+                    if tt_score < beta {
+                        beta = tt_score;
                     }
                 }
                 BoundType::None => {}
@@ -204,7 +209,7 @@ pub fn search<NT: NodeType>(
     let pawn_hash = board.pawn_hash();
     let color = board.turn();
     
-    if !in_check && adjusted_depth.raw() <= 7 {
+    if !in_check && adjusted_depth.raw() <= 4 {
         #[cfg(debug_assertions)]
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
