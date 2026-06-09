@@ -27,25 +27,25 @@ impl<'a> SearchEvaluator<'a> {
     }
 
     #[inline]
-    pub fn evaluate(&mut self, board: &Board) -> Score {
+    pub fn evaluate(&mut self, ply: usize, board: &Board) -> Score {
         match self {
-            Self::Nnue(e) => e.evaluate(board.turn()),
+            Self::Nnue(e) => e.evaluate(ply, board.turn()),
             Self::Hce => hce::evaluate(board),
         }
     }
 
     #[inline]
-    pub fn update_move(&mut self, board: &Board, m: Move) -> bool {
+    pub fn update_move(&mut self, ply: usize, board: &Board, m: Move) -> bool {
         match self {
-            Self::Nnue(e) => e.update_move(board, m),
+            Self::Nnue(e) => e.update_move(ply, board, m),
             Self::Hce => true, // HCE is stateless
         }
     }
 
     #[inline]
-    pub fn refresh(&mut self, board: &Board) {
+    pub fn refresh(&mut self, ply: usize, board: &Board) {
         if let Self::Nnue(e) = self {
-            e.refresh(board);
+            e.refresh(ply, board);
         }
     }
 }

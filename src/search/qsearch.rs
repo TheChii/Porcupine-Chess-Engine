@@ -64,7 +64,7 @@ pub fn quiescence<NT: NodeType>(
     searcher.inc_eval_calls();
     #[cfg(debug_assertions)]
     let t_eval = std::time::Instant::now();
-    let stand_pat = evaluator.evaluate(board);
+    let stand_pat = evaluator.evaluate(ply.raw() as usize, board);
     #[cfg(debug_assertions)]
     searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
 
@@ -156,11 +156,12 @@ pub fn quiescence<NT: NodeType>(
 
         let new_board = board.make_move_new(m);
         
-        // Clone evaluator for next depth and update incrementally
-        let mut child_evaluator = evaluator.clone();
-        child_evaluator.update_move(board, m); // board is position BEFORE move
+        // Update evaluator incrementally for next depth
+        if !evaluator.update_move(ply.raw() as usize, board, m) {
+            evaluator.refresh(ply.next().raw() as usize, &new_board);
+        }
 
-        let result = quiescence::<NT::Next>(searcher, &mut child_evaluator, &new_board, ply.next(), qply + 1, -beta, -alpha);
+        let result = quiescence::<NT::Next>(searcher, evaluator, &new_board, ply.next(), qply + 1, -beta, -alpha);
         let score = -result.score;
 
         if score > best_score {

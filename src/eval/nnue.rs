@@ -201,50 +201,50 @@ pub fn refresh_state<'m>(state: &mut SfHalfKpState<'m>, model: &'m SfHalfKpModel
     *state = create_state(model, board);
 }
 
+const MAX_PLY: usize = 128;
+
 /// Stateful NNUE evaluator for use in search
-/// Manages a cloneable state for efficient incremental updates
+/// Manages a stack of cloneable states for efficient incremental updates without cloning
 pub struct NnueEvaluator<'m> {
     model: &'m SfHalfKpModel,
-    state: SfHalfKpState<'m>,
+    states: Vec<SfHalfKpState<'m>>,
 }
 
 impl<'m> NnueEvaluator<'m> {
     /// Create a new evaluator for a position
     pub fn new(model: &'m SfHalfKpModel, board: &Board) -> Self {
+        let initial_state = create_state(model, board);
         Self {
             model,
-            state: create_state(model, board),
+            states: vec![initial_state; MAX_PLY],
         }
     }
 
-    /// Evaluate current position
+    /// Evaluate current position at a specific ply
     #[inline]
-    pub fn evaluate(&mut self, side_to_move: Color) -> Score {
-        evaluate_state(&mut self.state, side_to_move)
+    pub fn evaluate(&mut self, ply: usize, side_to_move: Color) -> Score {
+        let safe_ply = ply.min(self.states.len() - 1);
+        evaluate_state(&mut self.states[safe_ply], side_to_move)
     }
 
-    /// Update for a move, returns false if refresh needed
+    /// Update for a move, writing to ply + 1. Returns false if refresh needed
     #[inline]
-    pub fn update_move(&mut self, board: &Board, mv: Move) -> bool {
-        update_state_for_move(&mut self.state, board, mv)
+    pub fn update_move(&mut self, ply: usize, board: &Board, mv: Move) -> bool {
+        let next_ply = ply + 1;
+        if next_ply >= self.states.len() {
+            self.states.push(self.states.last().unwrap().clone());
+        }
+        self.states[next_ply] = self.states[ply.min(self.states.len() - 2)].clone();
+        update_state_for_move(&mut self.states[next_ply], board, mv)
     }
 
-    /// Refresh state for a new position
+    /// Refresh state for a new position at a specific ply
     #[inline]
-    pub fn refresh(&mut self, board: &Board) {
-        self.state = create_state(self.model, board);
-    }
-
-    /// Clone the current state (for search recursion)
-    #[inline]
-    pub fn clone_state(&self) -> SfHalfKpState<'m> {
-        self.state.clone()
-    }
-
-    /// Restore state from a clone
-    #[inline]
-    pub fn restore_state(&mut self, state: SfHalfKpState<'m>) {
-        self.state = state;
+    pub fn refresh(&mut self, ply: usize, board: &Board) {
+        if ply >= self.states.len() {
+            self.states.resize(ply + 1, self.states.last().unwrap().clone());
+        }
+        self.states[ply] = create_state(self.model, board);
     }
 }
 
@@ -252,7 +252,7 @@ impl<'m> Clone for NnueEvaluator<'m> {
     fn clone(&self) -> Self {
         Self {
             model: self.model,
-            state: self.state.clone(),
+            states: self.states.clone(),
         }
     }
 }

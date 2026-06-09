@@ -15,6 +15,28 @@ use super::tt::BoundType;
 use crate::types::{Board, Move, Score, Depth, Ply, Piece, SCORE_MATE};
 use crate::eval::SearchEvaluator;
 use smallvec::{SmallVec, smallvec};
+use std::sync::OnceLock;
+
+static LMR_TABLE: OnceLock<[[i32; 64]; 64]> = OnceLock::new();
+
+#[inline]
+fn get_lmr(depth: i32, move_idx: usize) -> i32 {
+    let table = LMR_TABLE.get_or_init(|| {
+        let mut t = [[0; 64]; 64];
+        for d in 0..64 {
+            for m in 0..64 {
+                let d_f = (d.max(1) as f32).ln();
+                let m_f = ((m + 1) as f32).ln();
+                t[d][m] = (0.6 + d_f * m_f / 1.6) as i32;
+            }
+        }
+        t
+    });
+    
+    let d = depth.min(63).max(0) as usize;
+    let m = move_idx.min(63);
+    table[d][m]
+}
 
 /// Type alias for PV storage - stack-allocated for typical depths
 pub type PV = SmallVec<[Move; 32]>;
@@ -187,7 +209,7 @@ pub fn search<NT: NodeType>(
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
         let t_eval = std::time::Instant::now();
-        let raw_eval = evaluator.evaluate(board);
+        let raw_eval = evaluator.evaluate(ply.raw() as usize, board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
         
@@ -254,12 +276,12 @@ pub fn search<NT: NodeType>(
             // Create a null move board (pass the turn)
             let null_board = board.make_null_move();
             
-            // Clone evaluator for null move (no piece updates needed)
-            let mut null_evaluator = evaluator.clone();
+            // Use current evaluator, just refresh the next ply for null board
+            evaluator.refresh(ply.next().raw() as usize, &null_board);
             
             let null_result = search::<OffPV>(
                 searcher,
-                &mut null_evaluator,
+                evaluator,
                 &null_board,
                 Depth::new((adjusted_depth.raw() - 1 - r).max(0)),
                 ply.next(),
@@ -330,7 +352,7 @@ pub fn search<NT: NodeType>(
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
         let t_eval = std::time::Instant::now();
-        let val = evaluator.evaluate(board);
+        let val = evaluator.evaluate(ply.raw() as usize, board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
         static_eval = Some(val);
@@ -397,10 +419,8 @@ pub fn search<NT: NodeType>(
             && !gives_check
             && !is_killer
         {
-            // Logarithmic reduction formula
-            let d = (adjusted_depth.raw() as f32).ln();
-            let m_idx = ((move_idx + 1) as f32).ln();
-            let mut reduction = (0.6 + d * m_idx / 1.6) as i32;
+            // Logarithmic reduction formula (pre-computed)
+            let mut reduction = get_lmr(adjusted_depth.raw(), move_idx);
             
             // Reduce more for quiet moves
             if is_quiet {
@@ -473,15 +493,14 @@ pub fn search<NT: NodeType>(
         
         if move_idx == 0 {
             // Incremental update for next depth
-            let mut child_eval = evaluator.clone();
-            if !child_eval.update_move(board, m) {
-                child_eval.refresh(&new_board);
+            if !evaluator.update_move(ply.raw() as usize, board, m) {
+                evaluator.refresh(ply.next().raw() as usize, &new_board);
             }
 
             // First move: search with full window (PV search)
             result = search::<NT::Next>(
                 searcher,
-                &mut child_eval,
+                evaluator,
                 &new_board,
                 search_depth,
                 ply.next(),
@@ -492,15 +511,14 @@ pub fn search<NT: NodeType>(
             score = -result.score;
         } else {
             // Incremental update
-            let mut child_eval = evaluator.clone();
-            if !child_eval.update_move(board, m) {
-                child_eval.refresh(&new_board);
+            if !evaluator.update_move(ply.raw() as usize, board, m) {
+                evaluator.refresh(ply.next().raw() as usize, &new_board);
             }
 
             // Later moves: null window search first (OffPV)
             result = search::<OffPV>(
                 searcher,
-                &mut child_eval,
+                evaluator,
                 &new_board,
                 search_depth,
                 ply.next(),
@@ -512,10 +530,10 @@ pub fn search<NT: NodeType>(
             
             // Re-search with full window if fails high (only on PV nodes)
             if NT::PV && score > alpha && score < beta && !searcher.should_stop() {
-                // Re-use same child_eval since board/move didn't change
+                // Re-use same evaluator since board/move didn't change
                 result = search::<NT::Next>(
                     searcher,
-                    &mut child_eval,
+                    evaluator,
                     &new_board,
                     search_depth,
                     ply.next(),
@@ -529,14 +547,13 @@ pub fn search<NT: NodeType>(
 
         // Re-search at full depth if LMR reduced search beats alpha
         if reduced && score > alpha && !searcher.should_stop() {
-            let mut child_eval = evaluator.clone();
-            if !child_eval.update_move(board, m) {
-                child_eval.refresh(&new_board);
+            if !evaluator.update_move(ply.raw() as usize, board, m) {
+                evaluator.refresh(ply.next().raw() as usize, &new_board);
             }
 
             result = search::<NT::Next>(
                 searcher,
-                &mut child_eval,
+                evaluator,
                 &new_board,
                 Depth::new((depth.raw() - 1 + extension).max(0)),
                 ply.next(),
