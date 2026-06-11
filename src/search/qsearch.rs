@@ -61,17 +61,24 @@ pub fn quiescence<NT: NodeType>(
     let p = ply.raw() as usize;
     searcher.pv_length[p] = 0;
 
-    // Stand-pat evaluation using incremental evaluator
-    #[cfg(debug_assertions)]
-    searcher.inc_eval_calls();
-    #[cfg(debug_assertions)]
-    let t_eval = std::time::Instant::now();
-    let stand_pat = evaluator.evaluate(ply.raw() as usize, board);
-    #[cfg(debug_assertions)]
-    searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
+    let in_check = board.in_check();
 
-    // Beta cutoff: position is already too good
-    if stand_pat >= beta {
+    // Stand-pat evaluation using incremental evaluator
+    let stand_pat = if in_check {
+        Score::neg_infinity()
+    } else {
+        #[cfg(debug_assertions)]
+        searcher.inc_eval_calls();
+        #[cfg(debug_assertions)]
+        let t_eval = std::time::Instant::now();
+        let eval = evaluator.evaluate(ply.raw() as usize, board);
+        #[cfg(debug_assertions)]
+        searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
+        eval
+    };
+
+    // Beta cutoff: position is already too good (only if not in check)
+    if !in_check && stand_pat >= beta {
         return SearchResult {
             best_move: None,
             score: beta,
@@ -80,7 +87,6 @@ pub fn quiescence<NT: NodeType>(
 
     // === Delta Pruning (Big Delta) ===
     // If even capturing a queen wouldn't bring us close to alpha, give up
-    let in_check = board.in_check();
 
     // === Qsearch Depth Limit ===
     // Beyond MAX_QSEARCH_DEPTH, only continue if in check
@@ -98,27 +104,40 @@ pub fn quiescence<NT: NodeType>(
         };
     }
 
-    if stand_pat > alpha {
+    let mut best_score = stand_pat;
+
+    if in_check {
+        best_score = Score::mated_in(ply.raw()); // Base mate score if no evasions
+    } else if stand_pat > alpha {
         alpha = stand_pat;
     }
 
-    // Generate only captures
+    // Generate moves: all evasions if in check, otherwise only captures
     #[cfg(debug_assertions)]
     let t_gen = std::time::Instant::now();
-    let moves = board.generate_captures();
+    let moves = if in_check {
+        board.generate_moves()
+    } else {
+        board.generate_captures()
+    };
     #[cfg(debug_assertions)]
     searcher.add_gen_time(t_gen.elapsed().as_nanos() as u64);
 
     if moves.is_empty() {
-        return SearchResult {
-            best_move: None,
-            score: alpha,
-        };
+        if in_check {
+            return SearchResult {
+                best_move: None,
+                score: Score::mated_in(ply.raw()),
+            };
+        } else {
+            return SearchResult {
+                best_move: None,
+                score: alpha,
+            };
+        }
     }
 
     let mut move_picker = ordering::CapturePicker::new(board, moves);
-
-    let mut best_score = stand_pat;
 
     while let Some(m) = move_picker.next() {
         if searcher.should_stop() {
