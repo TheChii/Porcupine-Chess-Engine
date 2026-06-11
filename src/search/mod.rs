@@ -464,16 +464,14 @@ impl Searcher {
 
                 // Check if score is within window
                 if result.score <= alpha {
-                    // Fail-low: widen alpha gradually, keep beta
-                    // Center beta between old alpha and beta to narrow the upper bound
-                    beta = Score::cp((alpha.raw() + beta.raw()) / 2);
+                    // Fail-low: widen alpha, keep beta
                     alpha = if delta < 500 {
                         (best_score - Score::cp(delta)).max(Score::neg_infinity())
                     } else {
                         Score::neg_infinity()
                     };
                 } else if result.score >= beta {
-                    // Fail-high: widen beta gradually, keep alpha
+                    // Fail-high: widen beta, keep alpha
                     beta = if delta < 500 {
                         (best_score + Score::cp(delta)).min(Score::infinity())
                     } else {

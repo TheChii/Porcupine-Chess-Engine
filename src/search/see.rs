@@ -119,7 +119,6 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
 
             // King capture ends the sequence
             if piece == Piece::King {
-                depth += 1;
                 gains[depth] = last_value;
                 break;
             }

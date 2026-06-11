@@ -39,8 +39,8 @@ impl HistoryTable {
         // Gravity formula: prevents scores from growing unbounded
         // new_score = old_score + bonus - (old_score * |bonus| / max)
         let old = self.table[c][from][to];
-        let max = 32768; // Increased from 16384
-        let clamped_bonus = bonus.clamp(-400, 400); // Limit individual update impact
+        let max = 16384; 
+        let clamped_bonus = bonus.clamp(-2000, 2000); 
         self.table[c][from][to] = old + clamped_bonus - old * clamped_bonus.abs() / max;
     }
 
@@ -52,7 +52,7 @@ impl HistoryTable {
         depth: i32,
         other_quiets: &[Move],
     ) {
-        let bonus = (depth * depth).min(400);
+        let bonus = (16 * depth * depth).min(2000); // More aggressive bonus
 
         // Bonus for the move that caused cutoff
         self.update(color, best_move, bonus);

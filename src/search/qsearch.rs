@@ -10,9 +10,10 @@
 use super::negamax::SearchResult;
 use super::node_types::NodeType;
 use super::see::is_good_capture_with_victim;
+use super::tt::BoundType;
 use super::{ordering, Searcher};
 use crate::eval::SearchEvaluator;
-use crate::types::{Board, Piece, Ply, Score};
+use crate::types::{Board, Depth, Piece, Ply, Score};
 
 /// Piece values for delta pruning (centipawns)
 const PIECE_VALUES: [i32; 6] = [
@@ -25,8 +26,8 @@ const PIECE_VALUES: [i32; 6] = [
 ];
 
 /// Delta margin: if stand_pat + best possible gain < alpha, prune
-/// Using Queen value as the maximum possible gain from a single capture
-const DELTA_MARGIN: i32 = 600;
+/// Using Queen value as the maximum possible gain from a single capture + safety
+const DELTA_MARGIN: i32 = 1100;
 
 /// Safety margin for individual move delta pruning
 const DELTA_SAFETY: i32 = 100;
@@ -52,14 +53,77 @@ pub fn quiescence<NT: NodeType>(
     ply: Ply,
     qply: i32,
     mut alpha: Score,
-    beta: Score,
+    mut beta: Score,
 ) -> SearchResult {
+    // Prevent array bounds panics in extreme checking sequences
+    if ply.raw() >= crate::types::MAX_PLY - 1 {
+        let stand_pat = if board.in_check() { Score::draw() } else { evaluator.evaluate(ply.raw() as usize, board) };
+        return SearchResult {
+            best_move: None,
+            score: stand_pat,
+        };
+    }
+
     searcher.inc_nodes();
     searcher.inc_qnodes();
     searcher.update_seldepth(ply);
 
     let p = ply.raw() as usize;
     searcher.pv_length[p] = 0;
+
+    let hash = board.hash();
+    let orig_alpha = alpha;
+    let mut tt_move = None;
+
+    if let Some(entry) = searcher.shared.tt.probe(hash) {
+        tt_move = entry.best_move();
+
+        let tt_score = entry.score().from_tt(ply.raw());
+
+        match entry.bound() {
+            BoundType::Exact => {
+                if let Some(m) = tt_move {
+                    searcher.pv_table[p][0] = m;
+                    searcher.pv_length[p] = 1;
+                }
+                return SearchResult {
+                    best_move: tt_move,
+                    score: tt_score,
+                };
+            }
+            BoundType::LowerBound => {
+                if !NT::PV && tt_score >= beta {
+                    if let Some(m) = tt_move {
+                        searcher.pv_table[p][0] = m;
+                        searcher.pv_length[p] = 1;
+                    }
+                    return SearchResult {
+                        best_move: tt_move,
+                        score: tt_score,
+                    };
+                }
+                if !NT::PV && tt_score > alpha {
+                    alpha = tt_score;
+                }
+            }
+            BoundType::UpperBound => {
+                if !NT::PV && tt_score <= alpha {
+                    if let Some(m) = tt_move {
+                        searcher.pv_table[p][0] = m;
+                        searcher.pv_length[p] = 1;
+                    }
+                    return SearchResult {
+                        best_move: tt_move,
+                        score: tt_score,
+                    };
+                }
+                if !NT::PV && tt_score < beta {
+                    beta = tt_score;
+                }
+            }
+            BoundType::None => {}
+        }
+    }
 
     let in_check = board.in_check();
 
@@ -105,6 +169,7 @@ pub fn quiescence<NT: NodeType>(
     }
 
     let mut best_score = stand_pat;
+    let mut best_move = None;
 
     if in_check {
         best_score = Score::mated_in(ply.raw()); // Base mate score if no evasions
@@ -137,11 +202,17 @@ pub fn quiescence<NT: NodeType>(
         }
     }
 
-    let mut move_picker = ordering::CapturePicker::new(board, moves);
+    // Use tt_move for ordering
+    let mut move_picker = ordering::MovePicker::new(board, moves, tt_move, [None, None], None, board.turn());
 
-    while let Some(m) = move_picker.next() {
+    while let Some(m) = move_picker.next(&searcher.history) {
         if searcher.should_stop() {
             break;
+        }
+
+        // QSearch only searches captures/promotions unless in check
+        if !in_check && !m.is_capture() && !m.is_promotion() {
+            continue;
         }
 
         // Get captured piece value for delta pruning
@@ -160,7 +231,7 @@ pub fn quiescence<NT: NodeType>(
 
         // === SEE Pruning ===
         // Skip captures that lose material according to SEE
-        if !in_check && !is_good_capture_with_victim(board, m, captured) {
+        if !in_check && m.is_capture() && !is_good_capture_with_victim(board, m, captured) {
             continue;
         }
 
@@ -184,6 +255,7 @@ pub fn quiescence<NT: NodeType>(
 
         if score > best_score {
             best_score = score;
+            best_move = Some(m);
 
             // Update Triangular PV Table
             searcher.pv_table[p][0] = m;
@@ -203,8 +275,26 @@ pub fn quiescence<NT: NodeType>(
         }
     }
 
+    if !searcher.should_stop() {
+        let bound = if best_score >= beta {
+            BoundType::LowerBound
+        } else if best_score > orig_alpha {
+            BoundType::Exact
+        } else {
+            BoundType::UpperBound
+        };
+
+        searcher.shared.tt.store(
+            hash,
+            best_move,
+            best_score.to_tt(ply.raw()),
+            Depth::new(0),
+            bound,
+        );
+    }
+
     SearchResult {
-        best_move: None,
+        best_move,
         score: best_score,
     }
 }
