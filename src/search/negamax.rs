@@ -143,7 +143,7 @@ pub fn search<NT: NodeType>(
                                 };
                 }
                 BoundType::LowerBound => {
-                    if !NT::PV && tt_score >= beta {
+                    if tt_score >= beta {
                         if let Some(m) = tt_move {
                             searcher.pv_table[p][0] = m;
                             searcher.pv_length[p] = 1;
@@ -153,13 +153,13 @@ pub fn search<NT: NodeType>(
                             score: tt_score,
                                         };
                     }
-                    // Tighten alpha for PV nodes and when score < beta
-                    if tt_score > alpha {
+                    // Tighten alpha only for non-PV nodes
+                    if !NT::PV && tt_score > alpha {
                         alpha = tt_score;
                     }
                 }
                 BoundType::UpperBound => {
-                    if !NT::PV && tt_score <= alpha {
+                    if tt_score <= alpha {
                         if let Some(m) = tt_move {
                             searcher.pv_table[p][0] = m;
                             searcher.pv_length[p] = 1;
@@ -169,8 +169,8 @@ pub fn search<NT: NodeType>(
                             score: tt_score,
                                         };
                     }
-                    // Tighten beta for PV nodes and when score > alpha
-                    if tt_score < beta {
+                    // Tighten beta only for non-PV nodes
+                    if !NT::PV && tt_score < beta {
                         beta = tt_score;
                     }
                 }
@@ -237,9 +237,7 @@ pub fn search<NT: NodeType>(
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
 
-        // Apply correction history adjustment
-        let correction = searcher.correction.get(color, pawn_hash);
-        let eval = raw_eval + Score::cp(correction / 4);
+        let eval = raw_eval;
         static_eval = Some(eval);
 
         // RFP Margin: 75 * depth
@@ -291,8 +289,8 @@ pub fn search<NT: NodeType>(
         .is_empty();
 
         if !dominated_by_pawns {
-            // Reduction: R=5 if depth > 6, else R=4 (aggressive)
-            let r = if adjusted_depth.raw() > 6 { 5 } else { 4 };
+            // Reduction: Base 3 + scaled by depth
+            let r = 3 + adjusted_depth.raw() / 6;
 
             // Create a null move board (pass the turn)
             let null_board = board.make_null_move();
@@ -654,17 +652,6 @@ pub fn search<NT: NodeType>(
         }
 
         move_idx += 1;
-    }
-
-    // === Update Correction History ===
-    // Track difference between static eval and search score to correct future evals
-    if let Some(se) = static_eval {
-        if !best_score.is_mate_score() && !se.is_mate_score() {
-            let diff = best_score.raw() - se.raw();
-            searcher
-                .correction
-                .update(color, pawn_hash, depth.raw(), diff);
-        }
     }
 
     // === TT Store ===
