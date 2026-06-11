@@ -410,6 +410,7 @@ pub fn search<NT: NodeType>(
         let is_killer = killers[0] == Some(m) || killers[1] == Some(m);
         let is_quiet = !is_capture && !is_promotion;
         let gives_check = new_board.in_check();
+        let is_good_capture = is_capture && see::see_ge(board, m, 0);
 
         // === Late Move Pruning (LMP) ===
         // If we have searched enough quiet moves at low depth, stop searching the rest.
@@ -434,6 +435,7 @@ pub fn search<NT: NodeType>(
             && !in_check
             && !gives_check
             && !is_killer
+            && !is_good_capture
         {
             // Logarithmic reduction formula (pre-computed)
             let mut reduction = get_lmr(adjusted_depth.raw(), move_idx);
@@ -443,10 +445,12 @@ pub fn search<NT: NodeType>(
                 reduction += 1;
             }
 
-            // History-based LMR adjustment: reduce more for moves with bad history
+            // History-based LMR adjustment
             let history_score = searcher.history.get(color, m);
             if history_score < -15000 {
                 reduction += 1;
+            } else if history_score > 15000 {
+                reduction -= 1;
             }
 
             let reduction = reduction.min(adjusted_depth.raw() - 1).max(1);
