@@ -425,9 +425,6 @@ pub fn search<NT: NodeType>(
         // Reduce depth for late quiet moves that aren't special
         let mut reduced = false;
 
-        // Check extension: extend +1 when in check to avoid horizon effect
-        let extension = if in_check { 1 } else { 0 };
-
         let search_depth = if move_idx >= 2
             && adjusted_depth.raw() >= 3
             && !in_check
@@ -445,17 +442,17 @@ pub fn search<NT: NodeType>(
 
             // History-based LMR adjustment
             let history_score = searcher.history.get(color, m);
-            if history_score < -15000 {
+            if history_score < -4000 {
                 reduction += 1;
-            } else if history_score > 15000 {
+            } else if history_score > 4000 {
                 reduction -= 1;
             }
 
             let reduction = reduction.min(adjusted_depth.raw() - 1).max(1);
             reduced = true;
-            Depth::new((adjusted_depth.raw() - 1 - reduction + extension).max(1))
+            Depth::new((adjusted_depth.raw() - 1 - reduction).max(1))
         } else {
-            Depth::new((adjusted_depth.raw() - 1 + extension).max(0))
+            Depth::new((adjusted_depth.raw() - 1).max(0))
         };
 
         // === History Pruning ===
@@ -580,7 +577,7 @@ pub fn search<NT: NodeType>(
                 searcher,
                 evaluator,
                 &new_board,
-                Depth::new((depth.raw() - 1 + extension).max(0)),
+                Depth::new((depth.raw() - 1).max(0)),
                 ply.next(),
                 -alpha - Score::cp(1),
                 -alpha,
@@ -594,7 +591,7 @@ pub fn search<NT: NodeType>(
                     searcher,
                     evaluator,
                     &new_board,
-                    Depth::new((depth.raw() - 1 + extension).max(0)),
+                    Depth::new((depth.raw() - 1).max(0)),
                     ply.next(),
                     -beta,
                     -alpha,
