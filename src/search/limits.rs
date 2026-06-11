@@ -190,9 +190,9 @@ impl TimeManager {
             // Hard limit: allow up to 3x soft for critical moves, but never more than 50% of remaining
             let hard = (soft * 3).min(available / 2).max(soft);
 
-            // Minimum thresholds to avoid instant moves
-            let soft = soft.max(100); // At least 100ms
-            let hard = hard.max(200); // At least 200ms
+            // Minimum thresholds to avoid instant moves, but NEVER exceed available time!
+            let soft = soft.max(50).min(available); // At least 50ms, or all available
+            let hard = hard.max(100).min(available); // At least 100ms, or all available
 
             return Self {
                 soft_limit: soft,

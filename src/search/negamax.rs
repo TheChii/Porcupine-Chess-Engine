@@ -205,7 +205,7 @@ pub fn search<NT: NodeType>(
     let pawn_hash = board.pawn_hash();
     let color = board.turn();
 
-    if !in_check && adjusted_depth.raw() <= 4 {
+    if !in_check && adjusted_depth.raw() <= 8 {
         #[cfg(debug_assertions)]
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
@@ -219,13 +219,13 @@ pub fn search<NT: NodeType>(
         let eval = raw_eval + Score::cp(correction / 4);
         static_eval = Some(eval);
 
-        // RFP Margin: 100 * depth (was 90 * depth)
-        let margin = Score::cp(100 * adjusted_depth.raw());
+        // RFP Margin: 75 * depth
+        let margin = Score::cp(75 * adjusted_depth.raw());
 
         if eval - margin >= beta {
             return SearchResult {
                 best_move: None,
-                score: eval - margin, // Soft cap to avoid crazy scores
+                score: beta, // Fail high directly
                 };
         }
     }
