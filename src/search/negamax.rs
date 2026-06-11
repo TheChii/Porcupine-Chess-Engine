@@ -483,17 +483,19 @@ pub fn search<NT: NodeType>(
 
         // === Futility Pruning ===
         // At shallow depths, skip quiet moves if eval + margin is below alpha
-        if let Some(se) = static_eval {
-            if is_quiet && !gives_check && move_idx > 0 {
-                // More aggressive margin: 120 * depth (was 90)
-                let margin = 120 * adjusted_depth.raw();
-                if se.raw() + margin < alpha.raw() {
-                    // Track for history
-                    if quiets_count < 64 {
-                        searched_quiets[quiets_count] = m;
-                        quiets_count += 1;
+        if adjusted_depth.raw() <= 5 {
+            if let Some(se) = static_eval {
+                if is_quiet && !gives_check && move_idx > 0 {
+                    // Margin: 150 * depth
+                    let margin = 150 * adjusted_depth.raw();
+                    if se.raw() + margin < alpha.raw() {
+                        // Track for history
+                        if quiets_count < 64 {
+                            searched_quiets[quiets_count] = m;
+                            quiets_count += 1;
+                        }
+                        continue; // Prune this move
                     }
-                    continue; // Prune this move
                 }
             }
         }
