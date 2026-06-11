@@ -189,8 +189,31 @@ pub fn search<NT: NodeType>(
 
     let in_check = board.in_check();
 
-    // === Internal Iterative Deepening (IID) / Reductions (IIR) ===
-    // If we have no TT move, search shallower or reduce current depth
+    // === Internal Iterative Deepening (IID) ===
+    // If we have no TT move at a high depth, do a shallower search to find a good move
+    // This dramatically improves move ordering and alpha-beta cutoffs for the main search
+    if tt_move.is_none() && depth.raw() >= 5 && (NT::PV || depth.raw() >= 6) {
+        let iid_depth = Depth::new(depth.raw() - 2);
+        
+        // Do a shallower search to populate TT
+        let _ = search::<NT>(
+            searcher,
+            evaluator,
+            board,
+            iid_depth,
+            ply,
+            alpha,
+            beta,
+            prev_move,
+        );
+        
+        // Probe TT again to get the move
+        if let Some(entry) = searcher.shared.tt.probe(hash) {
+            tt_move = entry.best_move();
+        }
+    }
+    
+    // Fallback Reductions (IIR) for when IID isn't run
     let mut iir_reduction = 0;
     if tt_move.is_none() && depth.raw() >= 4 {
         iir_reduction = 1;

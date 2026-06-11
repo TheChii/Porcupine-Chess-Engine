@@ -401,7 +401,7 @@ impl Searcher {
     /// Internal search loop (called by main and helper threads)
     fn search_internal(&mut self, _limits: SearchLimits, max_depth: Depth) -> SearchResult {
         let mut best_score = Score::neg_infinity();
-        const INITIAL_WINDOW: i32 = 15;
+        const INITIAL_WINDOW: i32 = 30;
 
         // Initialize evaluator at root
         let local_nnue = self.nnue.clone();
