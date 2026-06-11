@@ -84,13 +84,10 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
     let (attacker_piece, mut gain) = match (attacker, victim) {
         (Some(a), Some(v)) => (a, see_piece_value(v)),
         (Some(a), None) => {
-            // En passant capture or quiet move?
-            // SEE is typically only called for captures.
-            // If it's a pawn moving to empty square, assume EP if it's a capture.
-            if a == Piece::Pawn {
+            if mv.flag() == movegen::MoveFlag::EnPassant {
                 (a, see_piece_value(Piece::Pawn))
             } else {
-                return 0; // Not a capture
+                (a, 0)
             }
         }
         _ => return 0,
@@ -105,7 +102,6 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
     let mut gains: [i32; 32] = [0; 32];
     let mut depth = 0;
     gains[depth] = gain;
-    depth += 1;
 
     let mut occupied = board.occupied() ^ Bitboard::from_square(from);
     let mut side = !board.turn();
@@ -113,15 +109,18 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
 
     // Simulate the exchange
     loop {
+        depth += 1;
+        gains[depth] = last_value;
+
         if let Some((sq, piece)) = get_lva(board, to, side, occupied) {
             occupied ^= Bitboard::from_square(sq);
-            gains[depth] = last_value;
             last_value = see_piece_value(piece);
-            depth += 1;
             side = !side;
 
             // King capture ends the sequence
             if piece == Piece::King {
+                depth += 1;
+                gains[depth] = last_value;
                 break;
             }
         } else {
@@ -132,7 +131,7 @@ pub fn see_captured(board: &Board, mv: Move, victim: Option<Piece>) -> i32 {
     // Negamax-style evaluation from the end
     while depth > 1 {
         depth -= 1;
-        gains[depth - 1] = gains[depth - 1].max(-gains[depth]);
+        gains[depth - 1] = gains[depth - 1] - gains[depth].max(0);
     }
 
     gains[0]
