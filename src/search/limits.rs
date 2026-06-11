@@ -154,26 +154,15 @@ impl TimeManager {
                 movestogo as u64
             } else {
                 // No explicit moves-to-go, estimate based on time left
-                // Use a dynamic estimate: more time = more conservative
-                // Less time = more aggressive (assume game is ending)
+                // Use a more conservative estimate for blitz to avoid burning time
                 if available > 300000 {
-                    // > 5 min: assume 40 moves remaining
                     40
-                } else if available > 120000 {
-                    // 2-5 min: assume 30 moves
-                    30
                 } else if available > 60000 {
-                    // 1-2 min: assume 25 moves
-                    25
-                } else if available > 30000 {
-                    // 30s-1min: assume 20 moves
-                    20
+                    35
                 } else if available > 10000 {
-                    // 10-30s: assume 15 moves
-                    15
+                    30
                 } else {
-                    // < 10s: panic mode, 10 moves
-                    10
+                    20 // Don't drop below 20 moves to go to prevent burning base time
                 }
             }
             .max(1);
