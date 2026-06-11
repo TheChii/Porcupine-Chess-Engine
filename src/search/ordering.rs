@@ -16,18 +16,6 @@ const KILLER_1_BONUS: i32 = 35_000;
 const COUNTER_MOVE_BONUS: i32 = 30_000;
 const BAD_CAPTURE_PENALTY: i32 = -10_000;
 
-/// MVV-LVA scores for capture ordering
-#[inline]
-fn mvv_lva_score(board: &Board, m: Move) -> i32 {
-    let victim = board.piece_at(m.to()).map(|(p, _)| p);
-    let attacker = board.piece_at(m.from()).map(|(p, _)| p);
-
-    match (victim, attacker) {
-        (Some(v), Some(a)) => piece_value(v) * 10 - piece_value(a),
-        _ => 0,
-    }
-}
-
 /// Score a move for ordering (higher = search first)
 #[inline]
 pub fn score_move(
@@ -253,40 +241,6 @@ impl<'a> MovePicker<'a> {
                 }
                 _ => return None,
             }
-        }
-    }
-}
-
-pub struct CapturePicker {
-    moves: MoveList,
-    scores: [i32; 256],
-}
-
-impl CapturePicker {
-    pub fn new(board: &Board, moves: MoveList) -> Self {
-        let mut scores = [0; 256];
-        for i in 0..moves.len() {
-            scores[i] = mvv_lva_score(board, moves.as_slice()[i]);
-        }
-        Self { moves, scores }
-    }
-
-    pub fn next(&mut self) -> Option<Move> {
-        let mut best_score = -i32::MAX;
-        let mut best_idx = None;
-        for i in 0..self.moves.len() {
-            if self.scores[i] != i32::MIN {
-                if self.scores[i] > best_score {
-                    best_score = self.scores[i];
-                    best_idx = Some(i);
-                }
-            }
-        }
-        if let Some(idx) = best_idx {
-            self.scores[idx] = i32::MIN; // Mark as yielded
-            Some(self.moves.as_slice()[idx])
-        } else {
-            None
         }
     }
 }

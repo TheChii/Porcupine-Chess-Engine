@@ -225,8 +225,6 @@ pub fn search<NT: NodeType>(
     // If we are way ahead, we can prune without searching
     // Distinct from standard Futility Pruning which prunes *moves*
     let mut static_eval = None;
-    let pawn_hash = board.pawn_hash();
-    let color = board.turn();
 
     if !in_check && adjusted_depth.raw() <= 8 {
         #[cfg(debug_assertions)]
