@@ -151,7 +151,8 @@ impl TimeManager {
             // Estimate moves remaining based on time situation
             let mtg = if let Some(movestogo) = limits.movestogo {
                 // Explicit moves to go (sudden death with X moves per period)
-                movestogo as u64
+                // Cap at 30 to spend more time early in the period
+                (movestogo as u64).min(30)
             } else {
                 // No explicit moves-to-go, estimate based on time left
                 // Use a more conservative estimate for blitz to avoid burning time
@@ -180,10 +181,12 @@ impl TimeManager {
             let inc_bonus = (inc * 85) / 100; // Use 85% of increment
 
             // Soft limit: base + increment bonus, but cap at reasonable portion of remaining time
-            let soft = (base_time + inc_bonus).min(available / 3);
+            let max_soft = if mtg <= 1 { available * 80 / 100 } else if mtg <= 3 { available * 40 / 100 } else { available / 3 };
+            let soft = (base_time + inc_bonus).min(max_soft);
 
-            // Hard limit: allow up to 3x soft for critical moves, but never more than 50% of remaining
-            let hard = (soft * 3).min(available / 2).max(soft);
+            // Hard limit: allow up to 4x soft for critical moves, but never more than max_hard
+            let max_hard = if mtg <= 1 { available * 95 / 100 } else if mtg <= 3 { available * 60 / 100 } else { available / 2 };
+            let hard = (soft * 4).min(max_hard).max(soft);
 
             // Minimum thresholds to avoid instant moves, but NEVER exceed available time!
             let soft = soft.max(50).min(available); // At least 50ms, or all available
