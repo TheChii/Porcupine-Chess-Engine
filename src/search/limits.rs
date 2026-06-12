@@ -110,7 +110,7 @@ impl TimeManager {
     }
 
     /// Create time manager from search limits
-    pub fn from_limits(limits: &SearchLimits, side: Color) -> Self {
+    pub fn from_limits(limits: &SearchLimits, side: Color, moves_played: u16) -> Self {
         if limits.infinite {
             return Self::new();
         }
@@ -168,7 +168,13 @@ impl TimeManager {
             .max(1);
 
             // Base time allocation per move
-            let base_time = available / mtg;
+            let mut base_time = available / mtg;
+
+            // Reduce time in the opening to save for midgame
+            if moves_played <= 10 {
+                let factor = 50 + (moves_played as u64 * 5); // 55% at move 1, up to 100% at move 10
+                base_time = (base_time * factor) / 100;
+            }
 
             // Add most of increment to our budget (we'll get it back after moving)
             let inc_bonus = (inc * 85) / 100; // Use 85% of increment
@@ -301,7 +307,7 @@ mod tests {
             move_overhead: 50,
             ..Default::default()
         };
-        let tm = TimeManager::from_limits(&limits, Color::White);
+        let tm = TimeManager::from_limits(&limits, Color::White, 1);
 
         assert!(!tm.is_infinite());
         // 1000 - 50 overhead = 950 available
@@ -321,7 +327,7 @@ mod tests {
             move_overhead: 10,
             ..Default::default()
         };
-        let tm = TimeManager::from_limits(&limits, Color::White);
+        let tm = TimeManager::from_limits(&limits, Color::White, 1);
 
         assert!(!tm.is_infinite());
         // 60000 - 10 = 59990 available
@@ -340,7 +346,7 @@ mod tests {
             infinite: true,
             ..Default::default()
         };
-        let tm = TimeManager::from_limits(&limits, Color::White);
+        let tm = TimeManager::from_limits(&limits, Color::White, 1);
 
         assert!(tm.is_infinite());
         assert!(tm.can_start_iteration());

@@ -361,7 +361,7 @@ impl Searcher {
         self.history.age();
 
         // Configure time management
-        self.time_manager = TimeManager::from_limits(&limits, self.board.turn());
+        self.time_manager = TimeManager::from_limits(&limits, self.board.turn(), self.board.fullmove_number());
 
         let max_depth = limits.depth.unwrap_or(Depth::MAX);
 
