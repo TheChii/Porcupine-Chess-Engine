@@ -251,9 +251,9 @@ pub fn search<NT: NodeType>(
 
     // === ProbCut ===
     // Only on non-PV nodes (zero-window)
-    const PROBCUT_MARGIN: i32 = 100;
     if !NT::PV && adjusted_depth.raw() >= 5 && !in_check && beta.raw().abs() < (SCORE_MATE - 1000) {
-        let probe_beta = beta + Score::cp(PROBCUT_MARGIN);
+        let probcut_margin = 50 + 10 * adjusted_depth.raw();
+        let probe_beta = beta + Score::cp(probcut_margin);
         let probe_depth = Depth::new(adjusted_depth.raw() - 4);
 
         let result = search::<OffPV>(
@@ -432,6 +432,11 @@ pub fn search<NT: NodeType>(
         {
             // Logarithmic reduction formula (pre-computed)
             let mut reduction = get_lmr(adjusted_depth.raw(), move_idx);
+
+            // Reduce less on PV nodes
+            if NT::PV {
+                reduction = reduction.saturating_sub(1);
+            }
 
             // Reduce more for quiet moves
             if is_quiet {
