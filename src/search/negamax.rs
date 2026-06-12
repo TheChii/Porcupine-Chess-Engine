@@ -238,8 +238,8 @@ pub fn search<NT: NodeType>(
         let eval = raw_eval;
         static_eval = Some(eval);
 
-        // RFP Margin: 75 * depth
-        let margin = Score::cp(75 * adjusted_depth.raw());
+        // RFP Margin: 60 + 60 * depth
+        let margin = Score::cp(60 + 60 * adjusted_depth.raw());
 
         if eval - margin >= beta {
             return SearchResult {
