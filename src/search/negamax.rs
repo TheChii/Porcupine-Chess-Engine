@@ -69,11 +69,14 @@ pub fn search<NT: NodeType>(
 
     let hash = board.hash();
 
-    // === Repetition Detection with Contempt ===
+    // === Draw Detection (Repetition & 50-move rule) with Contempt ===
     // Check for draw by repetition (position seen before in game history)
     // Use contempt: avoid draws when winning, seek draws when losing
     // Skip at root node (ply == 0)
-    if !NT::ROOT && searcher.is_repetition(hash) {
+    let is_repetition = !NT::ROOT && searcher.is_repetition(hash, board.halfmove_clock());
+    let is_50_moves = board.halfmove_clock() >= 100;
+
+    if is_repetition || is_50_moves {
         // Contempt factor: small penalty/bonus for draws based on expected score
         // If alpha > 0 (we expect to be winning), penalize draws to avoid them
         // If beta < 0 (we expect to be losing), reward draws to seek them
@@ -296,6 +299,7 @@ pub fn search<NT: NodeType>(
             // Use current evaluator, just refresh the next ply for null board
             evaluator.refresh(ply.next().raw() as usize, &null_board);
 
+            searcher.position_history.push(board.hash());
             let null_result = search::<OffPV>(
                 searcher,
                 evaluator,
@@ -306,6 +310,7 @@ pub fn search<NT: NodeType>(
                 -beta + Score::cp(1),
                 None, // No prev move for null move
             );
+            searcher.position_history.pop();
 
             let null_score = -null_result.score;
 
@@ -390,9 +395,16 @@ pub fn search<NT: NodeType>(
     let mut quiets_count = 0usize;
 
     let mut move_idx = 0;
+    let mut hash_pushed = false;
+
     while let Some(m) = move_picker.next(&searcher.history) {
         if NT::ROOT {
             searcher.report_currmove(m, move_idx + 1);
+        }
+
+        if !hash_pushed {
+            searcher.position_history.push(board.hash());
+            hash_pushed = true;
         }
 
         let new_board = board.make_move_new(m);
@@ -654,6 +666,10 @@ pub fn search<NT: NodeType>(
         }
 
         move_idx += 1;
+    }
+
+    if hash_pushed {
+        searcher.position_history.pop();
     }
 
     // === TT Store ===

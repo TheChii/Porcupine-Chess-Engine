@@ -226,10 +226,12 @@ impl Searcher {
 
     /// Check if position has repeated (for draw detection)
     /// Check if position has repeated (for draw detection)
-    pub fn is_repetition(&self, hash: u64) -> bool {
+    pub fn is_repetition(&self, hash: u64, halfmove_clock: u8) -> bool {
+        // Only look back as far as the halfmove clock (moves since last pawn move or capture)
+        let limit = self.position_history.len().saturating_sub(halfmove_clock as usize);
+        
         // Iterate backwards to find recent repetitions (more likely)
-        // using any() to stop at first match
-        self.position_history.iter().rev().any(|&h| h == hash)
+        self.position_history[limit..].iter().rev().any(|&h| h == hash)
     }
 
     /// Get current statistics
