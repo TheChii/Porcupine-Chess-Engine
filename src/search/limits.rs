@@ -334,11 +334,13 @@ mod tests {
 
         assert!(!tm.is_infinite());
         // 60000 - 10 = 59990 available
-        // base = 59990 / 30 = ~1999
-        // inc_bonus = 1000 * 0.75 = 750
-        // soft = ~2749
-        assert!(tm.soft_limit_ms() > 2000);
-        assert!(tm.soft_limit_ms() < 4000);
+        // mtg = 30 (since available <= 60000)
+        // base = 59990 / 30 = 1999
+        // Opening reduction: move 1 = 55% -> 1099
+        // inc_bonus = 1000 * 0.85 = 850
+        // soft = 1949
+        assert!(tm.soft_limit_ms() > 1900);
+        assert!(tm.soft_limit_ms() < 2000);
         // hard = min(3 * soft, available / 4)
         assert!(tm.hard_limit_ms() >= tm.soft_limit_ms());
     }
