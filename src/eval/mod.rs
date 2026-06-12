@@ -7,6 +7,7 @@ use crate::types::{piece_value, Board, Color, Move, Piece, Score, Value};
 
 pub mod hce;
 pub mod nnue;
+pub mod endgame_hce;
 
 // Re-export the evaluator for use in search
 pub use nnue::NnueEvaluator;
@@ -29,7 +30,13 @@ impl<'a> SearchEvaluator<'a> {
     #[inline]
     pub fn evaluate(&mut self, ply: usize, board: &Board) -> Score {
         match self {
-            Self::Nnue(e) => e.evaluate(ply, board.turn()),
+            Self::Nnue(e) => {
+                if (board.color_bb(Color::White) | board.color_bb(Color::Black)).count() <= 6 {
+                    endgame_hce::evaluate(board)
+                } else {
+                    e.evaluate(ply, board.turn())
+                }
+            }
             Self::Hce => hce::evaluate(board),
         }
     }
@@ -55,8 +62,11 @@ impl<'a> SearchEvaluator<'a> {
 /// Uses NNUE if a model is provided, otherwise HCE fallback.
 pub fn evaluate(board: &Board, model: Option<&nnue::Model>) -> Score {
     if let Some(m) = model {
-        // Use NNUE evaluation
-        nnue::evaluate_scratch(m, board)
+        if (board.color_bb(Color::White) | board.color_bb(Color::Black)).count() <= 6 {
+            endgame_hce::evaluate(board)
+        } else {
+            nnue::evaluate_scratch(m, board)
+        }
     } else {
         // Fallback to HCE
         hce::evaluate(board)
