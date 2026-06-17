@@ -145,8 +145,12 @@ pub struct Searcher {
     best_move: Option<Move>,
     pub pv_table: [[Move; 128]; 128],
     pub pv_length: [usize; 128],
+    /// Evaluation method to use
+    pub eval_method: crate::eval::EvalMethod,
     /// NNUE Model (thread-safe reference)
     pub nnue: Option<nnue::Model>,
+    /// Porcupine NNUE Model
+    pub porcupine: Option<Arc<crate::eval::porcupine_nnue::Model>>,
     /// Position history for repetition detection (stores Zobrist hashes)
     pub position_history: Vec<u64>,
     /// Move stability counter (how many iterations best move unchanged)
@@ -173,7 +177,14 @@ impl Searcher {
             best_move: None,
             pv_table: [[Move::NULL; 128]; 128],
             pv_length: [0; 128],
+            // === EVALUATION METHOD TOGGLE ===
+            // Uncomment the line for the method you want to use:
+            // eval_method: crate::eval::EvalMethod::Hce,
+            // eval_method: crate::eval::EvalMethod::Nnue,
+            eval_method: crate::eval::EvalMethod::Porcupine,
+            // ================================
             nnue: None,
+            porcupine: None,
             position_history: Vec::with_capacity(512),
             stable_move_count: 0,
             last_best_move: None,
@@ -330,7 +341,9 @@ impl Searcher {
             best_move: None,
             pv_table: [[Move::NULL; 128]; 128],
             pv_length: [0; 128],
+            eval_method: self.eval_method,
             nnue: self.nnue.clone(),
+            porcupine: self.porcupine.clone(),
             position_history: self.position_history.clone(),
             stable_move_count: 0,
             last_best_move: None,
@@ -405,7 +418,13 @@ impl Searcher {
 
         // Initialize evaluator at root
         let local_nnue = self.nnue.clone();
-        let mut root_evaluator = SearchEvaluator::new(local_nnue.as_ref(), &self.board);
+        let local_porcupine = self.porcupine.clone();
+        let mut root_evaluator = SearchEvaluator::new(
+            self.eval_method, 
+            local_nnue.as_ref(), 
+            local_porcupine.as_deref(), 
+            &self.board
+        );
 
         for depth in 1..=max_depth.raw() {
             // Check if we can start a new iteration

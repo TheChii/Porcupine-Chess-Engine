@@ -51,8 +51,22 @@ impl UciHandler {
             }
             Err(e) => {
                 eprintln!("info string NNUE load failed: {:?}", e);
-                eprintln!("info string Using material eval");
             }
+        }
+
+        // Try to load Porcupine NNUE (custom model)
+        if std::path::Path::new("network.bin").exists() {
+            match crate::eval::porcupine_nnue::Model::load("network.bin") {
+                Ok(model) => {
+                    eprintln!("info string Porcupine NNUE loaded: 768->128->1 (network.bin)");
+                    searcher.porcupine = Some(model);
+                }
+                Err(e) => {
+                    eprintln!("info string Porcupine NNUE load failed: {:?}", e);
+                }
+            }
+        } else {
+            eprintln!("info string Porcupine NNUE not found (network.bin)");
         }
 
         let shared = searcher.shared.clone();
@@ -113,11 +127,26 @@ impl UciHandler {
             UciCommand::Quit => self.cmd_quit(),
             UciCommand::Display => self.cmd_display(),
             UciCommand::Unknown(s) => {
-                if self.debug {
+                if s.trim() == "eval" {
+                    self.cmd_eval();
+                } else if self.debug {
                     eprintln!("Unknown command: {}", s);
                 }
             }
         }
+    }
+
+    fn cmd_eval(&mut self) {
+        self.wait_for_search();
+        let searcher = self.searcher.as_ref().unwrap();
+        let mut evaluator = crate::eval::SearchEvaluator::new(
+            searcher.eval_method,
+            searcher.nnue.as_ref(),
+            searcher.porcupine.as_deref(),
+            &self.board
+        );
+        let score = evaluator.evaluate(0, &self.board);
+        println!("eval {} (method: {:?})", score, searcher.eval_method);
     }
 
     /// Send output to GUI
@@ -256,16 +285,20 @@ impl UciHandler {
     fn cmd_ucinewgame(&mut self) {
         self.wait_for_search();
         let mut searcher = self.searcher.take().unwrap();
-        // Preserve NNUE model before resetting
+        // Preserve NNUE models before resetting
         let nnue_model = searcher.nnue.take();
+        let porcupine_model = searcher.porcupine.take();
+        let eval_method = searcher.eval_method;
         let size_mb = searcher.shared.tt.size_mb();
         let threads = searcher.threads();
 
         self.board = Board::default();
         let mut new_searcher = Searcher::new();
 
-        // Restore NNUE model
+        // Restore NNUE models
         new_searcher.nnue = nnue_model;
+        new_searcher.porcupine = porcupine_model;
+        new_searcher.eval_method = eval_method;
         new_searcher.set_hash_size(size_mb);
         new_searcher.set_threads(threads);
 
