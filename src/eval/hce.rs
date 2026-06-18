@@ -19,24 +19,24 @@ use crate::types::{Board, Color, Piece, Score};
 /// Uses separate i16 values for simplicity and correctness.
 /// This avoids overflow issues with the packed single-i32 approach.
 #[derive(Clone, Copy, Default)]
-struct S {
-    mg: i16,
-    eg: i16,
+pub struct S {
+    pub mg: i16,
+    pub eg: i16,
 }
 
 impl S {
     #[inline(always)]
-    const fn new(mg: i16, eg: i16) -> Self {
+    pub const fn new(mg: i16, eg: i16) -> Self {
         Self { mg, eg }
     }
 
     #[inline(always)]
-    const fn mg(self) -> i32 {
+    pub const fn mg(self) -> i32 {
         self.mg as i32
     }
 
     #[inline(always)]
-    const fn eg(self) -> i32 {
+    pub const fn eg(self) -> i32 {
         self.eg as i32
     }
 }
@@ -90,20 +90,134 @@ impl core::ops::Neg for S {
     }
 }
 
-// ============================================================================
-// PIECE VALUES (Packed MG/EG)
+// = :===========================================================================
+// TUNABLE PARAMETERS
 // ============================================================================
 
-const PIECE_VALUES: [S; 6] = [
-    S::new(100, 120),  // Pawn
-    S::new(320, 300),  // Knight
-    S::new(330, 320),  // Bishop
-    S::new(500, 550),  // Rook
-    S::new(950, 1000), // Queen
-    S::new(0, 0),      // King (no material value)
-];
+use std::sync::{OnceLock, RwLock};
 
-const BISHOP_PAIR: S = S::new(35, 50);
+#[derive(Clone, Copy)]
+pub struct TuningParams {
+    pub piece_values: [S; 6],
+    pub bishop_pair: S,
+    pub passed_bonus: [S; 8],
+}
+
+impl TuningParams {
+    const fn default() -> Self {
+        Self {
+            piece_values: [
+                S::new(100, 120),  // Pawn
+                S::new(320, 300),  // Knight
+                S::new(330, 320),  // Bishop
+                S::new(500, 550),  // Rook
+                S::new(950, 1000), // Queen
+                S::new(0, 0),      // King
+            ],
+            bishop_pair: S::new(35, 50),
+            passed_bonus: [
+                S::new(0, 0),     // Rank 1
+                S::new(5, 10),    // Rank 2
+                S::new(10, 20),   // Rank 3
+                S::new(20, 40),   // Rank 4
+                S::new(40, 70),   // Rank 5
+                S::new(70, 120),  // Rank 6
+                S::new(120, 200), // Rank 7
+                S::new(0, 0),     // Rank 8
+            ],
+        }
+    }
+}
+
+static TUNING_PARAMS: OnceLock<RwLock<TuningParams>> = OnceLock::new();
+
+pub fn get_params() -> TuningParams {
+    *TUNING_PARAMS
+        .get_or_init(|| RwLock::new(TuningParams::default()))
+        .read()
+        .unwrap()
+}
+
+pub fn update_param(name: &str, value: i32) -> bool {
+    let mut params = TUNING_PARAMS
+        .get_or_init(|| RwLock::new(TuningParams::default()))
+        .write()
+        .unwrap();
+
+    let parts: Vec<&str> = name.split('_').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+
+    let is_mg = parts.last() == Some(&"mg");
+    let base_name = if is_mg || parts.last() == Some(&"eg") {
+        &name[..name.len() - 3]
+    } else {
+        name
+    };
+
+    match base_name {
+        "pawn" => {
+            if is_mg {
+                params.piece_values[0].mg = value as i16;
+            } else {
+                params.piece_values[0].eg = value as i16;
+            }
+        }
+        "knight" => {
+            if is_mg {
+                params.piece_values[1].mg = value as i16;
+            } else {
+                params.piece_values[1].eg = value as i16;
+            }
+        }
+        "bishop" => {
+            if is_mg {
+                params.piece_values[2].mg = value as i16;
+            } else {
+                params.piece_values[2].eg = value as i16;
+            }
+        }
+        "rook" => {
+            if is_mg {
+                params.piece_values[3].mg = value as i16;
+            } else {
+                params.piece_values[3].eg = value as i16;
+            }
+        }
+        "queen" => {
+            if is_mg {
+                params.piece_values[4].mg = value as i16;
+            } else {
+                params.piece_values[4].eg = value as i16;
+            }
+        }
+        "bishoppair" => {
+            if is_mg {
+                params.bishop_pair.mg = value as i16;
+            } else {
+                params.bishop_pair.eg = value as i16;
+            }
+        }
+        _ if base_name.starts_with("passed_rank") => {
+            if let Ok(rank) = base_name["passed_rank".len()..].parse::<usize>() {
+                if rank < 8 {
+                    if is_mg {
+                        params.passed_bonus[rank].mg = value as i16;
+                    } else {
+                        params.passed_bonus[rank].eg = value as i16;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        _ => return false,
+    }
+    true
+}
 
 // ============================================================================
 // PIECE-SQUARE TABLES (Packed MG/EG, White's perspective, A1=0)
@@ -640,25 +754,13 @@ static PASSED_MASK_BLACK: [u64; 64] = {
     masks
 };
 
-/// Passed pawn bonus by rank advancement (index 0-7)
-static PASSED_BONUS: [S; 8] = [
-    S::new(0, 0),     // Rank 1 (impossible for white)
-    S::new(5, 10),    // Rank 2
-    S::new(10, 20),   // Rank 3
-    S::new(20, 40),   // Rank 4
-    S::new(40, 70),   // Rank 5
-    S::new(70, 120),  // Rank 6
-    S::new(120, 200), // Rank 7 (about to promote!)
-    S::new(0, 0),     // Rank 8 (impossible)
-];
-
 // ============================================================================
 // PHASE CALCULATION
 // ============================================================================
 
 const PHASE_TOTAL: i32 = 24; // 4*1 (N) + 4*1 (B) + 4*2 (R) + 2*4 (Q)
 
-/// Calculate game phase (0 = endgame, 256 = opening)
+/// Calculate game phase (0 = opening, 256 = endgame)
 #[inline(always)]
 fn calculate_phase(board: &Board) -> i32 {
     let n = board.piece_bb(Piece::Knight).count() as i32;
@@ -718,6 +820,7 @@ pub fn evaluate(board: &Board) -> Score {
 fn eval_side<const IS_WHITE: bool>(board: &Board) -> S {
     let color = if IS_WHITE { Color::White } else { Color::Black };
     let mut score = S::default();
+    let params = get_params();
 
     // Material + PST in single pass
     for (piece_idx, &piece) in [
@@ -743,7 +846,7 @@ fn eval_side<const IS_WHITE: bool>(board: &Board) -> S {
 
             // Material (not for king)
             if piece_idx < 5 {
-                score += PIECE_VALUES[piece_idx];
+                score += params.piece_values[piece_idx];
             }
 
             // PST bonus
@@ -754,18 +857,18 @@ fn eval_side<const IS_WHITE: bool>(board: &Board) -> S {
     // Bishop pair bonus
     let bishops = board.piece_bb(Piece::Bishop) & board.color_bb(color);
     if bishops.count() >= 2 {
-        score += BISHOP_PAIR;
+        score += params.bishop_pair;
     }
 
     // Passed pawn evaluation
-    score += eval_passed_pawns::<IS_WHITE>(board);
+    score += eval_passed_pawns::<IS_WHITE>(board, &params);
 
     score
 }
 
 /// Evaluate passed pawns for one side
 #[inline(always)]
-fn eval_passed_pawns<const IS_WHITE: bool>(board: &Board) -> S {
+fn eval_passed_pawns<const IS_WHITE: bool>(board: &Board, params: &TuningParams) -> S {
     let color = if IS_WHITE { Color::White } else { Color::Black };
     let our_pawns = board.piece_bb(Piece::Pawn) & board.color_bb(color);
     let enemy_pawns = board.piece_bb(Piece::Pawn) & board.color_bb(!color);
@@ -792,7 +895,7 @@ fn eval_passed_pawns<const IS_WHITE: bool>(board: &Board) -> S {
                 7 - (sq_idx / 8)
             };
 
-            bonus += PASSED_BONUS[rank];
+            bonus += params.passed_bonus[rank];
         }
     }
 

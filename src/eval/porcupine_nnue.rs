@@ -5,8 +5,6 @@
 //! Output: 1 (Linear)
 
 use crate::types::{Board, Color, Move, MoveFlag, Piece, Score, Square};
-use std::fs::File;
-use std::io::{Read, BufReader};
 use std::sync::Arc;
 
 pub const INPUT_SIZE: usize = 768;
@@ -22,10 +20,9 @@ pub struct Model {
 }
 
 impl Model {
-    /// Load weights from a binary file exported by train.py
-    pub fn load(path: &str) -> std::io::Result<Arc<Self>> {
-        let file = File::open(path)?;
-        let mut reader = BufReader::new(file);
+    /// Load embedded weights from network.bin
+    pub fn load_embedded() -> Arc<Self> {
+        let bytes = include_bytes!("../../network.bin");
         
         let mut input_weights = vec![0.0f32; INPUT_SIZE * HIDDEN_SIZE];
         let mut output_weights = vec![0.0f32; HIDDEN_SIZE];
@@ -36,26 +33,28 @@ impl Model {
                 input_weights.as_mut_ptr() as *mut u8, 
                 input_weights.len() * 4
             );
-            reader.read_exact(input_slice)?;
+            input_slice.copy_from_slice(&bytes[0..input_weights.len() * 4]);
 
+            let offset1 = input_weights.len() * 4;
             let output_slice = std::slice::from_raw_parts_mut(
                 output_weights.as_mut_ptr() as *mut u8, 
                 output_weights.len() * 4
             );
-            reader.read_exact(output_slice)?;
+            output_slice.copy_from_slice(&bytes[offset1..offset1 + output_weights.len() * 4]);
 
+            let offset2 = offset1 + output_weights.len() * 4;
             let bias_slice = std::slice::from_raw_parts_mut(
                 output_bias_arr.as_mut_ptr() as *mut u8, 
                 4
             );
-            reader.read_exact(bias_slice)?;
+            bias_slice.copy_from_slice(&bytes[offset2..offset2 + 4]);
         }
 
-        Ok(Arc::new(Self {
+        Arc::new(Self {
             input_weights,
             output_weights,
             output_bias: output_bias_arr[0],
-        }))
+        })
     }
 }
 

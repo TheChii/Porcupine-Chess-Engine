@@ -54,20 +54,10 @@ impl UciHandler {
             }
         }
 
-        // Try to load Porcupine NNUE (custom model)
-        if std::path::Path::new("network.bin").exists() {
-            match crate::eval::porcupine_nnue::Model::load("network.bin") {
-                Ok(model) => {
-                    eprintln!("info string Porcupine NNUE loaded: 768->128->1 (network.bin)");
-                    searcher.porcupine = Some(model);
-                }
-                Err(e) => {
-                    eprintln!("info string Porcupine NNUE load failed: {:?}", e);
-                }
-            }
-        } else {
-            eprintln!("info string Porcupine NNUE not found (network.bin)");
-        }
+        // Load embedded Porcupine NNUE (custom model)
+        let model = crate::eval::porcupine_nnue::Model::load_embedded();
+        eprintln!("info string Porcupine NNUE loaded: 768->128->1 (network.bin)");
+        searcher.porcupine = Some(model);
 
         let shared = searcher.shared.clone();
 
@@ -167,6 +157,26 @@ impl UciHandler {
         self.send("option name MoveOverhead type spin default 10 min 0 max 5000");
         self.send("option name OwnBook type check default false");
         self.send("option name BookPath type string default <empty>");
+        // Removed EvalMethod option
+
+        // Send HCE tuning options
+        self.send("option name pawn_mg type spin default 100 min -1000 max 1000");
+        self.send("option name pawn_eg type spin default 120 min -1000 max 1000");
+        self.send("option name knight_mg type spin default 320 min -1000 max 1000");
+        self.send("option name knight_eg type spin default 300 min -1000 max 1000");
+        self.send("option name bishop_mg type spin default 330 min -1000 max 1000");
+        self.send("option name bishop_eg type spin default 320 min -1000 max 1000");
+        self.send("option name rook_mg type spin default 500 min -2000 max 2000");
+        self.send("option name rook_eg type spin default 550 min -2000 max 2000");
+        self.send("option name queen_mg type spin default 950 min -5000 max 5000");
+        self.send("option name queen_eg type spin default 1000 min -5000 max 5000");
+        self.send("option name bishoppair_mg type spin default 35 min -500 max 500");
+        self.send("option name bishoppair_eg type spin default 50 min -500 max 500");
+        
+        for i in 2..=7 {
+            self.send(&format!("option name passed_rank{}_mg type spin default 0 min -1000 max 1000", i));
+            self.send(&format!("option name passed_rank{}_eg type spin default 0 min -1000 max 1000", i));
+        }
 
         self.send("uciok");
     }
@@ -274,7 +284,20 @@ impl UciHandler {
                     }
                 }
             }
+
             _ => {
+                // Try updating tuning parameters
+                if let Some(v) = value {
+                    if let Ok(val) = v.parse::<i32>() {
+                        if crate::eval::hce::update_param(name, val) {
+                            if self.debug {
+                                eprintln!("Tuning parameter {} set to {}", name, val);
+                            }
+                            return;
+                        }
+                    }
+                }
+
                 if self.debug {
                     eprintln!("Unknown option: {}", name);
                 }

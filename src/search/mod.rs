@@ -161,6 +161,8 @@ pub struct Searcher {
     num_threads: usize,
     /// Is this a helper thread (no UCI output)
     is_helper: bool,
+    /// Maximum nodes to search
+    nodes_limit: Option<u64>,
 }
 
 impl Searcher {
@@ -190,6 +192,7 @@ impl Searcher {
             last_best_move: None,
             num_threads: 1,
             is_helper: false,
+            nodes_limit: None,
         }
     }
 
@@ -279,6 +282,14 @@ impl Searcher {
             return true;
         }
 
+        // Check nodes limit
+        if let Some(limit) = self.nodes_limit {
+            if self.shared.total_nodes.load(Ordering::Relaxed) + self.stats.nodes >= limit {
+                self.shared.stop.store(true, Ordering::Relaxed);
+                return true;
+            }
+        }
+
         // Check time periodically (every 512 nodes for stricter timing)
         // More frequent checks help prevent time losses in movetime mode
         if self.stats.nodes & 511 == 0 {
@@ -349,6 +360,7 @@ impl Searcher {
             last_best_move: None,
             num_threads: 1,
             is_helper: true,
+            nodes_limit: self.nodes_limit,
         }
     }
 
@@ -363,6 +375,7 @@ impl Searcher {
         self.pv_length[0] = 0;
         self.stable_move_count = 0;
         self.last_best_move = None;
+        self.nodes_limit = limits.nodes;
 
         // Increment TT generation for new search
         self.shared.tt.new_search();
@@ -412,7 +425,7 @@ impl Searcher {
     }
 
     /// Internal search loop (called by main and helper threads)
-    fn search_internal(&mut self, _limits: SearchLimits, max_depth: Depth) -> SearchResult {
+    fn search_internal(&mut self, limits: SearchLimits, max_depth: Depth) -> SearchResult {
         let mut best_score = Score::neg_infinity();
         const INITIAL_WINDOW: i32 = 30;
 
@@ -430,6 +443,13 @@ impl Searcher {
             // Check if we can start a new iteration
             if !self.can_start_new_iteration() {
                 break;
+            }
+
+            // Check node limit before starting new iteration
+            if let Some(limit) = limits.nodes {
+                if self.shared.total_nodes.load(Ordering::Relaxed) >= limit {
+                    break;
+                }
             }
 
             // Early termination: only stop if we found a mate within the current depth.

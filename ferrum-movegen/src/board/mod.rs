@@ -306,3 +306,13 @@ impl core::fmt::Debug for Board {
         write!(f, "}}")
     }
 }
+
+#[test]
+fn test_pseudo_legal_captures_king() {
+    let board = Board::from_fen("k7/8/8/8/3q4/2P5/8/RNBQKBNR w KQkq - 0 1").unwrap();
+    let moves = board.generate_moves();
+    for m in moves.iter() {
+        println!("{:?}", m);
+        let _ = board.make_move_new(m);
+    }
+}

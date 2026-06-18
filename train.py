@@ -83,18 +83,27 @@ class ChessDataset(Dataset):
 def collate_fn(batch):
     indices_list = [b[0] for b in batch]
     targets = torch.stack([b[1] for b in batch])
-    return indices_list, targets
+    
+    offsets = [0] + [len(idx) for idx in indices_list]
+    offsets = torch.tensor(offsets[:-1], dtype=torch.long).cumsum(dim=0)
+    flat_indices = torch.cat(indices_list)
+    
+    return flat_indices, offsets, targets
 
 class NNUE(nn.Module):
     def __init__(self):
         super(NNUE, self).__init__()
         self.embedding = nn.EmbeddingBag(INPUT_SIZE, HIDDEN_SIZE, mode='sum')
         self.fc = nn.Linear(HIDDEN_SIZE, 1)
+        
+        # Initialize embedding weights to keep the sum around 0.5 (center of CReLU)
+        # Since there are typically 32 pieces on the board, mean should be 0.5 / 32
+        nn.init.normal_(self.embedding.weight, mean=0.5 / 32, std=0.01)
+        # Initialize output weights to be small
+        nn.init.normal_(self.fc.weight, mean=0.0, std=0.01)
+        nn.init.constant_(self.fc.bias, 0.0)
 
-    def forward(self, indices_list):
-        offsets = [0] + [len(idx) for idx in indices_list]
-        offsets = torch.tensor(offsets[:-1], device=indices_list[0].device).cumsum(dim=0)
-        flat_indices = torch.cat(indices_list)
+    def forward(self, flat_indices, offsets):
         x = self.embedding(flat_indices, offsets)
         x = torch.clamp(x, 0.0, 1.0) # CReLU
         x = self.fc(x)
@@ -106,7 +115,7 @@ def train():
 
     # For safety, let's first check if saving and loading works with 100 samples
     print("Performing dry run check...")
-    test_dataset = ChessDataset('dataset.txt', max_samples=100)
+    test_dataset = ChessDataset('dataset_corrected.txt', max_samples=100)
     if len(test_dataset) == 0:
         print("Error: Could not load any samples. Check dataset.txt format.")
         return
@@ -122,7 +131,7 @@ def train():
         return
 
     # Load full dataset (or a large portion)
-    dataset = ChessDataset('dataset.txt')
+    dataset = ChessDataset('dataset_corrected.txt')
     
     train_size = int(0.95 * len(dataset))
     val_size = len(dataset) - train_size
@@ -146,12 +155,13 @@ def train():
             train_loss = 0
             pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
             
-            for i, (indices, targets) in enumerate(pbar):
-                indices = [idx.to(device) for idx in indices]
-                targets = targets.to(device)
+            for i, (flat_indices, offsets, targets) in enumerate(pbar):
+                flat_indices = flat_indices.to(device, non_blocking=True)
+                offsets = offsets.to(device, non_blocking=True)
+                targets = targets.to(device, non_blocking=True)
                 
                 optimizer.zero_grad()
-                outputs = model(indices)
+                outputs = model(flat_indices, offsets)
                 loss = criterion(outputs, targets)
                 loss.backward()
                 optimizer.step()
@@ -163,10 +173,11 @@ def train():
             model.eval()
             val_loss = 0
             with torch.no_grad():
-                for indices, targets in val_loader:
-                    indices = [idx.to(device) for idx in indices]
-                    targets = targets.to(device)
-                    outputs = model(indices)
+                for flat_indices, offsets, targets in val_loader:
+                    flat_indices = flat_indices.to(device, non_blocking=True)
+                    offsets = offsets.to(device, non_blocking=True)
+                    targets = targets.to(device, non_blocking=True)
+                    outputs = model(flat_indices, offsets)
                     loss = criterion(outputs, targets)
                     val_loss += loss.item()
             

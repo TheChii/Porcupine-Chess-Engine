@@ -13,22 +13,17 @@ use std::io::{BufReader, Cursor};
 use std::sync::Arc;
 
 /// Embedded NNUE network file (compiled into the binary)
-const EMBEDDED_NNUE: &[u8] = include_bytes!("../../network.nnue");
+// const EMBEDDED_NNUE: &[u8] = include_bytes!("../../network.nnue");
 
 /// Global type for shared thread-safe model
 pub type Model = Arc<SfHalfKpModel>;
 
 /// Load NNUE model from embedded bytes (no external file needed)
 pub fn load_embedded_model() -> std::io::Result<Model> {
-    let mut cursor = Cursor::new(EMBEDDED_NNUE);
-
-    match SfHalfKpFullModel::read(&mut cursor) {
-        Ok(full_model) => Ok(Arc::new(full_model.model)),
-        Err(e) => Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("Failed to parse embedded NNUE: {:?}", e),
-        )),
-    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "Original network.nnue was removed. Using custom network.bin instead.",
+    ))
 }
 
 /// Load NNUE model from file (for custom networks)
