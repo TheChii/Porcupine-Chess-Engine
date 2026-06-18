@@ -1,11 +1,7 @@
 //! Move generation logic.
 
-mod king;
-mod knights;
-mod legality;
 mod moves;
 mod pawns;
-mod sliders;
 
 pub use moves::{Move, MoveCounter, MoveFlag, MoveList, MoveSink, ScoredMove};
 
