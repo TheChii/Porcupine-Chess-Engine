@@ -35,7 +35,6 @@ pub use negamax::SearchResult;
 pub use see::{is_good_capture, see, see_ge};
 pub use tt::TranspositionTable;
 
-use crate::eval::{nnue, SearchEvaluator};
 use crate::types::{Board, Depth, Move, NodeCount, Ply, Score};
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -145,8 +144,6 @@ pub struct Searcher {
     best_move: Option<Move>,
     pub pv_table: [[Move; 128]; 128],
     pub pv_length: [usize; 128],
-    /// NNUE Model (thread-safe reference)
-    pub nnue: Option<nnue::Model>,
     /// Position history for repetition detection (stores Zobrist hashes)
     pub position_history: Vec<u64>,
     /// Move stability counter (how many iterations best move unchanged)
@@ -173,7 +170,6 @@ impl Searcher {
             best_move: None,
             pv_table: [[Move::NULL; 128]; 128],
             pv_length: [0; 128],
-            nnue: None,
             position_history: Vec::with_capacity(512),
             stable_move_count: 0,
             last_best_move: None,
@@ -203,11 +199,6 @@ impl Searcher {
     /// Get number of threads
     pub fn threads(&self) -> usize {
         self.num_threads
-    }
-
-    /// Set NNUE model
-    pub fn set_nnue(&mut self, model: Option<nnue::Model>) {
-        self.nnue = model;
     }
 
     /// Set the position to search with history for repetition detection
@@ -330,7 +321,6 @@ impl Searcher {
             best_move: None,
             pv_table: [[Move::NULL; 128]; 128],
             pv_length: [0; 128],
-            nnue: self.nnue.clone(),
             position_history: self.position_history.clone(),
             stable_move_count: 0,
             last_best_move: None,
@@ -402,11 +392,6 @@ impl Searcher {
     fn search_internal(&mut self, _limits: SearchLimits, max_depth: Depth) -> SearchResult {
         let mut best_score = Score::neg_infinity();
         const INITIAL_WINDOW: i32 = 30;
-
-        // Initialize evaluator at root
-        let local_nnue = self.nnue.clone();
-        let mut root_evaluator = SearchEvaluator::new(local_nnue.as_ref(), &self.board);
-
         for depth in 1..=max_depth.raw() {
             // Check if we can start a new iteration
             if !self.can_start_new_iteration() {
@@ -445,7 +430,6 @@ impl Searcher {
             loop {
                 let result = negamax::search::<Root>(
                     self,
-                    &mut root_evaluator,
                     &self.board.clone(),
                     Depth::new(depth),
                     Ply::ZERO,

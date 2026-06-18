@@ -12,7 +12,7 @@
 use super::node_types::{NodeType, OffPV};
 use super::tt::BoundType;
 use super::{ordering, qsearch, see, Searcher};
-use crate::eval::SearchEvaluator;
+use crate::eval;
 use crate::types::{Board, Depth, Move, Piece, Ply, Score, SCORE_MATE};
 
 use std::sync::OnceLock;
@@ -53,7 +53,6 @@ pub struct SearchResult {
 /// - `NT::Next`: the node type for child PV searches
 pub fn search<NT: NodeType>(
     searcher: &mut Searcher,
-    evaluator: &mut SearchEvaluator,
     board: &Board,
     depth: Depth,
     ply: Ply,
@@ -198,7 +197,6 @@ pub fn search<NT: NodeType>(
         // Do a shallower search to populate TT
         let _ = search::<NT>(
             searcher,
-            evaluator,
             board,
             iid_depth,
             ply,
@@ -231,7 +229,7 @@ pub fn search<NT: NodeType>(
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
         let t_eval = std::time::Instant::now();
-        let raw_eval = evaluator.evaluate(ply.raw() as usize, board);
+        let raw_eval = eval::evaluate(board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
 
@@ -258,7 +256,6 @@ pub fn search<NT: NodeType>(
 
         let result = search::<OffPV>(
             searcher,
-            evaluator,
             board,
             probe_depth,
             ply,
@@ -293,12 +290,8 @@ pub fn search<NT: NodeType>(
             // Create a null move board (pass the turn)
             let null_board = board.make_null_move();
 
-            // Use current evaluator, just refresh the next ply for null board
-            evaluator.refresh(ply.next().raw() as usize, &null_board);
-
             let null_result = search::<OffPV>(
                 searcher,
-                evaluator,
                 &null_board,
                 Depth::new((adjusted_depth.raw() - 1 - r).max(0)),
                 ply.next(),
@@ -342,7 +335,7 @@ pub fn search<NT: NodeType>(
 
     // Quiescence search at depth 0
     if adjusted_depth.is_qs() {
-        return qsearch::quiescence::<NT>(searcher, evaluator, board, ply, 0, alpha, beta);
+        return qsearch::quiescence::<NT>(searcher, board, ply, 0, alpha, beta);
     }
 
     // Get killers for this ply
@@ -363,7 +356,7 @@ pub fn search<NT: NodeType>(
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
         let t_eval = std::time::Instant::now();
-        let val = evaluator.evaluate(ply.raw() as usize, board);
+        let val = eval::evaluate(board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
         static_eval = Some(val);
@@ -375,7 +368,7 @@ pub fn search<NT: NodeType>(
             let threshold = alpha - Score::cp(200 + depth.raw() * 60);
             if eval < threshold {
                 let result =
-                    qsearch::quiescence::<OffPV>(searcher, evaluator, board, ply, 0, alpha, beta);
+                    qsearch::quiescence::<OffPV>(searcher, board, ply, 0, alpha, beta);
                 if result.score < alpha {
                     return result;
                 }
@@ -518,15 +511,9 @@ pub fn search<NT: NodeType>(
         let mut score;
 
         if move_idx == 0 {
-            // Incremental update for next depth
-            if !evaluator.update_move(ply.raw() as usize, board, m) {
-                evaluator.refresh(ply.next().raw() as usize, &new_board);
-            }
-
             // First move: search with full window (PV search)
             result = search::<NT::Next>(
                 searcher,
-                evaluator,
                 &new_board,
                 search_depth,
                 ply.next(),
@@ -536,15 +523,9 @@ pub fn search<NT: NodeType>(
             );
             score = -result.score;
         } else {
-            // Incremental update
-            if !evaluator.update_move(ply.raw() as usize, board, m) {
-                evaluator.refresh(ply.next().raw() as usize, &new_board);
-            }
-
             // Later moves: null window search first (OffPV)
             result = search::<OffPV>(
                 searcher,
-                evaluator,
                 &new_board,
                 search_depth,
                 ply.next(),
@@ -556,10 +537,8 @@ pub fn search<NT: NodeType>(
 
             // Re-search with full window if fails high (only on PV nodes)
             if NT::PV && score > alpha && score < beta && !searcher.should_stop() {
-                // Re-use same evaluator since board/move didn't change
                 result = search::<NT::Next>(
                     searcher,
-                    evaluator,
                     &new_board,
                     search_depth,
                     ply.next(),
@@ -573,14 +552,9 @@ pub fn search<NT: NodeType>(
 
         // Re-search at full depth if LMR reduced search beats alpha
         if reduced && score > alpha && !searcher.should_stop() {
-            if !evaluator.update_move(ply.raw() as usize, board, m) {
-                evaluator.refresh(ply.next().raw() as usize, &new_board);
-            }
-
             // First: null-window re-search at full depth
             result = search::<OffPV>(
                 searcher,
-                evaluator,
                 &new_board,
                 Depth::new((depth.raw() - 1).max(0)),
                 ply.next(),
@@ -594,7 +568,6 @@ pub fn search<NT: NodeType>(
             if NT::PV && score > alpha && score < beta && !searcher.should_stop() {
                 result = search::<NT::Next>(
                     searcher,
-                    evaluator,
                     &new_board,
                     Depth::new((depth.raw() - 1).max(0)),
                     ply.next(),

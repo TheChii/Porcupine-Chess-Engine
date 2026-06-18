@@ -2,19 +2,15 @@
 //!
 //! This module provides unified types that integrate seamlessly with:
 //! - `movegen` crate (move generation) - custom ferrum-movegen library
-//! - `nnue` crate (evaluation)
 //!
 //! # Design Principles
 //! - Re-export movegen crate types as the canonical source for board/move types
-//! - Provide conversion traits to bridge with nnue types
 //! - Define engine-specific types (Score, Depth, etc.) optimized for search
 
-mod convert;
 mod depth;
 mod score;
 
 // Re-export our custom types
-pub use convert::{nnue_color_flip, ToNnue};
 pub use depth::{Depth, Ply, MAX_DEPTH, MAX_PLY};
 pub use score::{Score, SCORE_DRAW, SCORE_INFINITY, SCORE_MATE, SCORE_NONE};
 

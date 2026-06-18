@@ -3,7 +3,6 @@
 use super::parser::{parse_command, UciCommand};
 use super::{format_move, parse_move, SearchParams, ENGINE_AUTHOR, ENGINE_NAME};
 use crate::book::PolyglotBook;
-use crate::eval::nnue;
 use crate::search::{SearchLimits, Searcher};
 use crate::types::Board;
 use std::io::{self, BufRead, Write};
@@ -40,20 +39,10 @@ impl Default for UciHandler {
 
 impl UciHandler {
     pub fn new() -> Self {
-        let mut searcher = Searcher::new();
+        let searcher = Searcher::new();
 
-        // Load embedded NNUE model (compiled into the binary)
-        match nnue::load_embedded_model() {
-            Ok(model) => {
-                // Log to stderr instead of stdout to avoid breaking strict UCI protocol on startup
-                eprintln!("info string NNUE loaded: HalfKP (40960->256x2->32->32->1)");
-                searcher.set_nnue(Some(model));
-            }
-            Err(e) => {
-                eprintln!("info string NNUE load failed: {:?}", e);
-                eprintln!("info string Using material eval");
-            }
-        }
+        // Using HCE instead of NNUE
+        eprintln!("info string Using HCE evaluation");
 
         let shared = searcher.shared.clone();
 
@@ -255,17 +244,13 @@ impl UciHandler {
 
     fn cmd_ucinewgame(&mut self) {
         self.wait_for_search();
-        let mut searcher = self.searcher.take().unwrap();
-        // Preserve NNUE model before resetting
-        let nnue_model = searcher.nnue.take();
+        let searcher = self.searcher.take().unwrap();
         let size_mb = searcher.shared.tt.size_mb();
         let threads = searcher.threads();
 
         self.board = Board::default();
         let mut new_searcher = Searcher::new();
 
-        // Restore NNUE model
-        new_searcher.nnue = nnue_model;
         new_searcher.set_hash_size(size_mb);
         new_searcher.set_threads(threads);
 

@@ -12,7 +12,7 @@ use super::node_types::NodeType;
 use super::see::is_good_capture_with_victim;
 use super::tt::BoundType;
 use super::{ordering, Searcher};
-use crate::eval::SearchEvaluator;
+use crate::eval;
 use crate::types::{Board, Depth, Piece, Ply, Score};
 
 /// Piece values for delta pruning (centipawns)
@@ -48,7 +48,6 @@ fn piece_value(piece: Piece) -> i32 {
 /// `qply` tracks depth within qsearch (starts at 0).
 pub fn quiescence<NT: NodeType>(
     searcher: &mut Searcher,
-    evaluator: &mut SearchEvaluator,
     board: &Board,
     ply: Ply,
     qply: i32,
@@ -57,7 +56,7 @@ pub fn quiescence<NT: NodeType>(
 ) -> SearchResult {
     // Prevent array bounds panics in extreme checking sequences
     if ply.raw() >= crate::types::MAX_PLY - 1 {
-        let stand_pat = if board.in_check() { Score::draw() } else { evaluator.evaluate(ply.raw() as usize, board) };
+        let stand_pat = if board.in_check() { Score::draw() } else { eval::evaluate(board) };
         return SearchResult {
             best_move: None,
             score: stand_pat,
@@ -135,7 +134,7 @@ pub fn quiescence<NT: NodeType>(
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
         let t_eval = std::time::Instant::now();
-        let eval = evaluator.evaluate(ply.raw() as usize, board);
+        let eval = eval::evaluate(board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
         eval
@@ -237,14 +236,8 @@ pub fn quiescence<NT: NodeType>(
 
         let new_board = board.make_move_new(m);
 
-        // Update evaluator incrementally for next depth
-        if !evaluator.update_move(ply.raw() as usize, board, m) {
-            evaluator.refresh(ply.next().raw() as usize, &new_board);
-        }
-
         let result = quiescence::<NT::Next>(
             searcher,
-            evaluator,
             &new_board,
             ply.next(),
             qply + 1,

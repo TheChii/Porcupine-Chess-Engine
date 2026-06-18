@@ -9,14 +9,12 @@ path = "src/main.rs"
 
 [dependencies]
 movegen = { path = "ferrum-movegen", package = "ferrum-movegen" }
-nnue = { path = "ferrum-nnue" }
 binread = "2"
 smallvec = "1.13"
 
 [workspace]
 members = [
-    "ferrum-movegen",
-    "ferrum-nnue"
+    "ferrum-movegen"
 ]
 
 [profile.release]
