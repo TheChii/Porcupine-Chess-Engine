@@ -78,30 +78,19 @@ pub fn create_state<'m>(model: &'m SfHalfKpModel, board: &Board) -> SfHalfKpStat
     state
 }
 
-/// Find king square for a color
-fn find_king_square(board: &Board, color: Color) -> Square {
-    let king_bb = board.piece_bb(Piece::King) & board.color_bb(color);
-    // There should always be exactly one king
-    if let Some(sq) = king_bb.into_iter().next() {
-        return sq;
-    }
-    // Fallback (should never happen in valid position)
-    Square::E1
+fn find_king_square(b: &Board, c: Color) -> Square {
+    (b.piece_bb(Piece::King) & b.color_bb(c)).into_iter().next().unwrap_or(Square::E1)
 }
 
-/// Evaluate using a pre-built state (fast - just runs network)
 #[inline]
-pub fn evaluate_state(state: &mut SfHalfKpState<'_>, side_to_move: Color) -> Score {
-    let raw = state.activate(side_to_move.to_nnue());
-    let cp = scale_nn_to_centipawns(raw[0]);
-    Score::cp(cp)
+pub fn evaluate_state(s: &mut SfHalfKpState<'_>, stm: Color) -> Score {
+    let raw = s.activate(stm.to_nnue());
+    Score::cp(scale_nn_to_centipawns(raw[0]))
 }
 
-/// Evaluate from scratch (creates new state)
 #[inline]
-pub fn evaluate_scratch(model: &SfHalfKpModel, board: &Board) -> Score {
-    let mut state = create_state(model, board);
-    evaluate_state(&mut state, board.turn())
+pub fn evaluate_scratch(m: &SfHalfKpModel, b: &Board) -> Score {
+    evaluate_state(&mut create_state(m, b), b.turn())
 }
 
 /// Update state for a move (incremental)
@@ -222,58 +211,44 @@ pub fn update_state_for_move(
     true
 }
 
-/// Refresh state completely from a board position
 #[inline]
-pub fn refresh_state<'m>(state: &mut SfHalfKpState<'m>, model: &'m SfHalfKpModel, board: &Board) {
-    // Create a new state and copy it
-    *state = create_state(model, board);
+pub fn refresh_state<'m>(s: &mut SfHalfKpState<'m>, m: &'m SfHalfKpModel, b: &Board) {
+    *s = create_state(m, b);
 }
 
 const MAX_PLY: usize = 128;
 
-/// Stateful NNUE evaluator for use in search
-/// Manages a stack of cloneable states for efficient incremental updates without cloning
 pub struct NnueEvaluator<'m> {
     model: &'m SfHalfKpModel,
     states: Vec<SfHalfKpState<'m>>,
 }
 
 impl<'m> NnueEvaluator<'m> {
-    /// Create a new evaluator for a position
-    pub fn new(model: &'m SfHalfKpModel, board: &Board) -> Self {
-        let initial_state = create_state(model, board);
-        Self {
-            model,
-            states: vec![initial_state; MAX_PLY],
-        }
+    pub fn new(m: &'m SfHalfKpModel, b: &Board) -> Self {
+        Self { model: m, states: vec![create_state(m, b); MAX_PLY] }
     }
 
-    /// Evaluate current position at a specific ply
     #[inline]
-    pub fn evaluate(&mut self, ply: usize, side_to_move: Color) -> Score {
-        let safe_ply = ply.min(self.states.len() - 1);
-        evaluate_state(&mut self.states[safe_ply], side_to_move)
+    pub fn evaluate(&mut self, p: usize, stm: Color) -> Score {
+        let max_idx = self.states.len() - 1;
+        let idx = p.min(max_idx);
+        evaluate_state(&mut self.states[idx], stm)
     }
 
-    /// Update for a move, writing to ply + 1. Returns false if refresh needed
     #[inline]
-    pub fn update_move(&mut self, ply: usize, board: &Board, mv: Move) -> bool {
-        let next_ply = ply + 1;
-        if next_ply >= self.states.len() {
-            self.states.push(self.states.last().unwrap().clone());
-        }
-        self.states[next_ply] = self.states[ply.min(self.states.len() - 2)].clone();
-        update_state_for_move(&mut self.states[next_ply], board, mv)
+    pub fn update_move(&mut self, p: usize, b: &Board, m: Move) -> bool {
+        let np = p + 1;
+        if np >= self.states.len() { self.states.push(self.states.last().unwrap().clone()); }
+        let max_idx = self.states.len().saturating_sub(2);
+        let src_idx = p.min(max_idx);
+        self.states[np] = self.states[src_idx].clone();
+        update_state_for_move(&mut self.states[np], b, m)
     }
 
-    /// Refresh state for a new position at a specific ply
     #[inline]
-    pub fn refresh(&mut self, ply: usize, board: &Board) {
-        if ply >= self.states.len() {
-            self.states
-                .resize(ply + 1, self.states.last().unwrap().clone());
-        }
-        self.states[ply] = create_state(self.model, board);
+    pub fn refresh(&mut self, p: usize, b: &Board) {
+        if p >= self.states.len() { self.states.resize(p + 1, self.states.last().unwrap().clone()); }
+        self.states[p] = create_state(self.model, b);
     }
 }
 

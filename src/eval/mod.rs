@@ -73,37 +73,19 @@ pub fn evaluate(board: &Board, model: Option<&nnue::Model>) -> Score {
     }
 }
 
-/// Wrapper for material eval that returns Score
-pub fn material_eval_wrapper(board: &Board) -> Score {
-    let eval = material_eval(board);
-    if board.turn() == Color::White {
-        Score::cp(eval)
-    } else {
-        Score::cp(-eval)
-    }
+pub fn material_eval_wrapper(b: &Board) -> Score {
+    let e = material_eval(b);
+    if b.turn() == Color::White { Score::cp(e) } else { Score::cp(-e) }
 }
 
-/// Simple material evaluation (white's perspective)
-fn material_eval(board: &Board) -> Value {
-    let mut score: Value = 0;
-
-    for piece in &[
-        Piece::Pawn,
-        Piece::Knight,
-        Piece::Bishop,
-        Piece::Rook,
-        Piece::Queen,
-    ] {
-        let white_pieces = board.piece_bb(*piece) & board.color_bb(Color::White);
-        let black_pieces = board.piece_bb(*piece) & board.color_bb(Color::Black);
-
-        let white_count = white_pieces.count() as Value;
-        let black_count = black_pieces.count() as Value;
-
-        score += piece_value(*piece) * (white_count - black_count);
+fn material_eval(b: &Board) -> Value {
+    let mut s: Value = 0;
+    for p in &[Piece::Pawn, Piece::Knight, Piece::Bishop, Piece::Rook, Piece::Queen] {
+        let w = (b.piece_bb(*p) & b.color_bb(Color::White)).count() as Value;
+        let bl = (b.piece_bb(*p) & b.color_bb(Color::Black)).count() as Value;
+        s += piece_value(*p) * (w - bl);
     }
-
-    score
+    s
 }
 
 #[cfg(test)]

@@ -20,169 +20,98 @@ const KING_CENTER_MAB: [Value; 64] = [
 // Helpers
 // ------------------------------------------------------------------------
 
-/// Chebyshev distance between two squares (king moves)
 #[inline(always)]
 fn king_dist(a: usize, b: usize) -> u32 {
-    let fa = (a & 7) as i32;
-    let ra = (a >> 3) as i32;
-    let fb = (b & 7) as i32;
-    let rb = (b >> 3) as i32;
+    let (fa, ra) = ((a & 7) as i32, (a >> 3) as i32);
+    let (fb, rb) = ((b & 7) as i32, (b >> 3) as i32);
     ((fa - fb).abs()).max((ra - rb).abs()) as u32
 }
 
-/// True if the two squares are adjacent (king move apart)
 #[inline(always)]
 fn are_adjacent(a: usize, b: usize) -> bool {
     king_dist(a, b) == 1
 }
 
-/// Key squares for a pawn of `pawn_color` standing on `sq`.
-/// Returns the squares the attacking king must occupy to force promotion.
-fn get_key_squares(sq: usize, pawn_color: Color) -> Vec<usize> {
-    let file = sq & 7;
-    let rank = sq >> 3;
-    match pawn_color {
+fn get_key_squares(sq: usize, pc: Color) -> Vec<usize> {
+    let f = sq & 7;
+    let r = sq >> 3;
+    match pc {
         Color::White => {
-            if file == 0 {
-                return vec![49, 57]; // b7, b8
-            }
-            if file == 7 {
-                return vec![54, 62]; // g7, g8
-            }
-            if rank == 6 {
-                // one step before promotion: key squares = promotion squares
-                let promo_rank = 7;
+            if f == 0 { return vec![49, 57]; }
+            if f == 7 { return vec![54, 62]; }
+            if r == 6 {
+                let pr = 7;
                 let mut sqs = Vec::new();
-                if file > 0 { sqs.push((promo_rank << 3) | (file - 1)); }
-                sqs.push((promo_rank << 3) | file);
-                if file < 7 { sqs.push((promo_rank << 3) | (file + 1)); }
+                if f > 0 { sqs.push((pr << 3) | (f - 1)); }
+                sqs.push((pr << 3) | f);
+                if f < 7 { sqs.push((pr << 3) | (f + 1)); }
                 return sqs;
             } else {
-                let target_rank = rank + 2;
+                let tr = r + 2;
                 let mut sqs = Vec::new();
-                if file > 0 { sqs.push((target_rank << 3) | (file - 1)); }
-                sqs.push((target_rank << 3) | file);
-                if file < 7 { sqs.push((target_rank << 3) | (file + 1)); }
+                if f > 0 { sqs.push((tr << 3) | (f - 1)); }
+                sqs.push((tr << 3) | f);
+                if f < 7 { sqs.push((tr << 3) | (f + 1)); }
                 return sqs;
             }
         }
         Color::Black => {
-            if file == 0 {
-                return vec![9, 1];  // b2, b1
-            }
-            if file == 7 {
-                return vec![14, 6]; // g2, g1
-            }
-            if rank == 1 {
-                // one step before promotion
-                let promo_rank = 0;
+            if f == 0 { return vec![9, 1]; }
+            if f == 7 { return vec![14, 6]; }
+            if r == 1 {
+                let pr = 0;
                 let mut sqs = Vec::new();
-                if file > 0 { sqs.push((promo_rank << 3) | (file - 1)); }
-                sqs.push((promo_rank << 3) | file);
-                if file < 7 { sqs.push((promo_rank << 3) | (file + 1)); }
+                if f > 0 { sqs.push((pr << 3) | (f - 1)); }
+                sqs.push((pr << 3) | f);
+                if f < 7 { sqs.push((pr << 3) | (f + 1)); }
                 return sqs;
             } else {
-                let target_rank = rank - 2;
+                let tr = r - 2;
                 let mut sqs = Vec::new();
-                if file > 0 { sqs.push((target_rank << 3) | (file - 1)); }
-                sqs.push((target_rank << 3) | file);
-                if file < 7 { sqs.push((target_rank << 3) | (file + 1)); }
+                if f > 0 { sqs.push((tr << 3) | (f - 1)); }
+                sqs.push((tr << 3) | f);
+                if f < 7 { sqs.push((tr << 3) | (f + 1)); }
                 return sqs;
             }
         }
     }
 }
 
-/// Is KPK a win for the side with the pawn?
-/// `attacker_king` and `defender_king` are squares of the side with and without the pawn.
-fn is_kpk_win(
-    pawn_color: Color,
-    attacker_king: usize,
-    defender_king: usize,
-    pawn_sq: usize,
-    side_to_move: Color,
-) -> bool {
-    let pawn_to_move = side_to_move == pawn_color;
-
-    // Immediate capture: if it's the defender's turn and he can safely take the pawn → draw
-    if !pawn_to_move && are_adjacent(defender_king, pawn_sq) && !are_adjacent(attacker_king, pawn_sq) {
-        return false;
+fn is_kpk_win(pc: Color, ak: usize, dk: usize, psq: usize, stm: Color) -> bool {
+    let ptm = stm == pc;
+    if !ptm && are_adjacent(dk, psq) && !are_adjacent(ak, psq) { return false; }
+    let ksqs = get_key_squares(psq, pc);
+    for &ksq in &ksqs { if ak == ksq { return true; } }
+    for &ksq in &ksqs {
+        let wd = king_dist(ak, ksq);
+        let bd = king_dist(dk, ksq);
+        if if ptm { wd <= bd } else { wd < bd } { return true; }
     }
-
-    // 1. Attacker already on a key square → win
-    let key_squares = get_key_squares(pawn_sq, pawn_color);
-    for &ksq in &key_squares {
-        if attacker_king == ksq {
-            return true;
-        }
-    }
-
-    // 2. Race to a key square
-    for &ksq in &key_squares {
-        let w_dist = king_dist(attacker_king, ksq);
-        let b_dist = king_dist(defender_king, ksq);
-        if pawn_to_move {
-            if w_dist <= b_dist { return true; }
-        } else {
-            if w_dist < b_dist { return true; }
-        }
-    }
-
-    // 3. Square of the pawn – if the defender is outside, pawn runs
-    let promo_sq = if pawn_color == Color::White {
-        (7 << 3) | (pawn_sq & 7)
-    } else {
-        (0 << 3) | (pawn_sq & 7)
-    };
-    let promo_moves = if pawn_color == Color::White {
-        7 - (pawn_sq >> 3)
-    } else {
-        pawn_sq >> 3
-    };
-    let effective_moves = if pawn_to_move { promo_moves } else { promo_moves + 1 };
-    if king_dist(defender_king, promo_sq) > effective_moves as u32 {
-        return true;
-    }
-
+    let prs = if pc == Color::White { (7 << 3) | (psq & 7) } else { (0 << 3) | (psq & 7) };
+    let pms = if pc == Color::White { 7 - (psq >> 3) } else { psq >> 3 };
+    let ems = if ptm { pms } else { pms + 1 };
+    if king_dist(dk, prs) > ems as u32 { return true; }
     false
 }
 
-/// Check whether `color` has insufficient material to force checkmate.
-/// Must be called when the opponent has only a bare king (no pawns/pieces).
-fn is_insufficient_material_side(
-    color: Color,
-    knights: Value,
-    bishops: Value,
-    rooks: Value,
-    queens: Value,
-    board: &Board,
-) -> bool {
-    if rooks > 0 || queens > 0 { return false; }
-    if knights == 0 && bishops == 0 { return true; } // bare king
-    if knights == 1 && bishops == 0 { return true; }
-    if knights == 2 && bishops == 0 { return true; } // 2N vs K is draw
-    if knights == 0 && bishops == 1 { return true; }
-    if knights == 0 && bishops == 2 {
-        // 2B vs K: only a win if bishops are on opposite colours
-        let bb = board.piece_bb(Piece::Bishop) & board.color_bb(color);
-        let squares: Vec<usize> = bb.iter().map(|s| s.index() as usize).collect();
-        if squares.len() == 2 {
-            let sq1 = squares[0];
-            let sq2 = squares[1];
-            let dark1 = ((sq1 & 7) + (sq1 >> 3)) & 1 == 0;
-            let dark2 = ((sq2 & 7) + (sq2 >> 3)) & 1 == 0;
-            return dark1 == dark2; // same colour → draw
+fn is_insufficient_material_side(c: Color, n: Value, b: Value, r: Value, q: Value, brd: &Board) -> bool {
+    if r > 0 || q > 0 { return false; }
+    if n == 0 && b == 0 { return true; }
+    if n == 1 && b == 0 { return true; }
+    if n == 2 && b == 0 { return true; }
+    if n == 0 && b == 1 { return true; }
+    if n == 0 && b == 2 {
+        let bb = brd.piece_bb(Piece::Bishop) & brd.color_bb(c);
+        let sqs: Vec<usize> = bb.iter().map(|s| s.index() as usize).collect();
+        if sqs.len() == 2 {
+            let (sq1, sq2) = (sqs[0], sqs[1]);
+            return (((sq1 & 7) + (sq1 >> 3)) & 1) == (((sq2 & 7) + (sq2 >> 3)) & 1);
         }
     }
-    false // e.g. N+B, 2B opposite colours, etc. → sufficient
+    false
 }
 
-// ------------------------------------------------------------------------
-// Main evaluation entry point
-// ------------------------------------------------------------------------
-
 pub fn evaluate(board: &Board) -> Score {
-    // -- Piece counts ----------------------------------------------------
     let w_pawns_bb = board.piece_bb(Piece::Pawn) & board.color_bb(Color::White);
     let b_pawns_bb = board.piece_bb(Piece::Pawn) & board.color_bb(Color::Black);
     let w_pawns = w_pawns_bb.count() as Value;

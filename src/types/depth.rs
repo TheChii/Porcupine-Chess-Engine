@@ -11,10 +11,6 @@ pub const MAX_DEPTH: i32 = 128;
 /// Maximum ply (half-moves from root)
 pub const MAX_PLY: i32 = 256;
 
-/// Search depth (in plies).
-///
-/// Represents how deep to search. Can be fractional in some contexts
-/// (for extensions/reductions), but stored as integer plies here.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
 #[repr(transparent)]
 pub struct Depth(pub i16);
@@ -23,88 +19,61 @@ impl Depth {
     pub const ZERO: Depth = Depth(0);
     pub const ONE: Depth = Depth(1);
     pub const MAX: Depth = Depth(MAX_DEPTH as i16);
-
-    /// Quiescence search depth marker
     pub const QS: Depth = Depth(0);
 
     #[inline]
-    pub const fn new(d: i32) -> Self {
-        Depth(d as i16)
-    }
+    pub const fn new(d: i32) -> Self { Depth(d as i16) }
 
     #[inline]
-    pub const fn raw(self) -> i32 {
-        self.0 as i32
-    }
-
-    /// Check if this depth requires quiescence search
-    #[inline]
-    pub const fn is_qs(self) -> bool {
-        self.0 <= 0
-    }
+    pub const fn raw(self) -> i32 { self.0 as i32 }
 
     #[inline]
-    pub const fn add_const(self, rhs: i32) -> Self {
-        Depth(self.0 + rhs as i16)
-    }
+    pub const fn is_qs(self) -> bool { self.0 <= 0 }
 
     #[inline]
-    pub const fn sub_const(self, rhs: i32) -> Self {
-        Depth(self.0 - rhs as i16)
-    }
+    pub const fn add_const(self, v: i32) -> Self { Depth(self.0 + v as i16) }
+
+    #[inline]
+    pub const fn sub_const(self, v: i32) -> Self { Depth(self.0 - v as i16) }
 }
 
 impl Add for Depth {
     type Output = Self;
     #[inline]
-    fn add(self, rhs: Self) -> Self {
-        Depth(self.0 + rhs.0)
-    }
+    fn add(self, rhs: Self) -> Self { Depth(self.0 + rhs.0) }
 }
 
 impl Sub for Depth {
     type Output = Self;
     #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        Depth(self.0 - rhs.0)
-    }
+    fn sub(self, rhs: Self) -> Self { Depth(self.0 - rhs.0) }
 }
 
 impl Add<i32> for Depth {
     type Output = Self;
     #[inline]
-    fn add(self, rhs: i32) -> Self {
-        Depth(self.0 + rhs as i16)
-    }
+    fn add(self, v: i32) -> Self { Depth(self.0 + v as i16) }
 }
 
 impl Sub<i32> for Depth {
     type Output = Self;
     #[inline]
-    fn sub(self, rhs: i32) -> Self {
-        Depth(self.0 - rhs as i16)
-    }
+    fn sub(self, v: i32) -> Self { Depth(self.0 - v as i16) }
 }
 
 impl AddAssign<i32> for Depth {
     #[inline]
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 += rhs as i16;
-    }
+    fn add_assign(&mut self, v: i32) { self.0 += v as i16; }
 }
 
 impl SubAssign<i32> for Depth {
     #[inline]
-    fn sub_assign(&mut self, rhs: i32) {
-        self.0 -= rhs as i16;
-    }
+    fn sub_assign(&mut self, v: i32) { self.0 -= v as i16; }
 }
 
 impl From<i32> for Depth {
     #[inline]
-    fn from(d: i32) -> Self {
-        Depth(d as i16)
-    }
+    fn from(d: i32) -> Self { Depth(d as i16) }
 }
 
 impl fmt::Display for Depth {
@@ -113,10 +82,6 @@ impl fmt::Display for Depth {
     }
 }
 
-/// Ply count (half-moves from the root position).
-///
-/// Used to track distance from root in search, for mate distance calculation,
-/// and stack indexing.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
 #[repr(transparent)]
 pub struct Ply(pub i16);
@@ -126,66 +91,44 @@ impl Ply {
     pub const MAX: Ply = Ply(MAX_PLY as i16);
 
     #[inline]
-    pub const fn new(p: i32) -> Self {
-        Ply(p as i16)
-    }
+    pub const fn new(p: i32) -> Self { Ply(p as i16) }
 
     #[inline]
-    pub const fn raw(self) -> i32 {
-        self.0 as i32
-    }
-
-    /// Increment ply (for going deeper in search)
-    #[inline]
-    pub const fn next(self) -> Self {
-        Ply(self.0 + 1)
-    }
-
-    /// Get as usize for array indexing
-    #[inline]
-    pub const fn as_index(self) -> usize {
-        self.0 as usize
-    }
+    pub const fn raw(self) -> i32 { self.0 as i32 }
 
     #[inline]
-    pub const fn add_const(self, rhs: i32) -> Self {
-        Ply(self.0 + rhs as i16)
-    }
+    pub const fn next(self) -> Self { Ply(self.0 + 1) }
 
     #[inline]
-    pub const fn sub_const(self, rhs: i32) -> Self {
-        Ply(self.0 - rhs as i16)
-    }
+    pub const fn as_index(self) -> usize { self.0 as usize }
+
+    #[inline]
+    pub const fn add_const(self, v: i32) -> Self { Ply(self.0 + v as i16) }
+
+    #[inline]
+    pub const fn sub_const(self, v: i32) -> Self { Ply(self.0 - v as i16) }
 }
 
 impl Add<i32> for Ply {
     type Output = Self;
     #[inline]
-    fn add(self, rhs: i32) -> Self {
-        Ply(self.0 + rhs as i16)
-    }
+    fn add(self, v: i32) -> Self { Ply(self.0 + v as i16) }
 }
 
 impl Sub<i32> for Ply {
     type Output = Self;
     #[inline]
-    fn sub(self, rhs: i32) -> Self {
-        Ply(self.0 - rhs as i16)
-    }
+    fn sub(self, v: i32) -> Self { Ply(self.0 - v as i16) }
 }
 
 impl AddAssign<i32> for Ply {
     #[inline]
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 += rhs as i16;
-    }
+    fn add_assign(&mut self, v: i32) { self.0 += v as i16; }
 }
 
 impl From<i32> for Ply {
     #[inline]
-    fn from(p: i32) -> Self {
-        Ply(p as i16)
-    }
+    fn from(p: i32) -> Self { Ply(p as i16) }
 }
 
 impl fmt::Display for Ply {

@@ -15,65 +15,35 @@ const CORRECTION_SIZE: usize = 16384;
 /// Maximum correction value (prevents overcorrection)
 const CORRECTION_MAX: i32 = 1024;
 
-/// Correction history table.
-///
-/// Indexed by [color][pawn_hash % SIZE] to store correction values for
-/// similar pawn structures.
 #[derive(Clone)]
 pub struct CorrectionHistoryTable {
     table: [[i16; CORRECTION_SIZE]; 2],
 }
 
 impl CorrectionHistoryTable {
-    /// Create a new empty correction history table.
     pub fn new() -> Self {
-        Self {
-            table: [[0; CORRECTION_SIZE]; 2],
-        }
+        Self { table: [[0; CORRECTION_SIZE]; 2] }
     }
 
-    /// Clear all correction values.
-    pub fn clear(&mut self) {
-        self.table = [[0; CORRECTION_SIZE]; 2];
-    }
+    pub fn clear(&mut self) { self.table = [[0; CORRECTION_SIZE]; 2]; }
 
-    /// Get the correction value for a pawn hash.
-    ///
-    /// Returns a value that should be added to the static evaluation.
-    /// The returned value is scaled down for direct use.
     #[inline]
-    pub fn get(&self, color: Color, pawn_hash: u64) -> i32 {
-        let c = color.index();
-        let idx = (pawn_hash as usize) % CORRECTION_SIZE;
-        i32::from(self.table[c][idx])
+    pub fn get(&self, c: Color, h: u64) -> i32 {
+        self.table[c.index()][(h as usize) % CORRECTION_SIZE] as i32
     }
 
-    /// Update the correction based on the difference between search score and static eval.
-    ///
-    /// `diff` = search_score - static_eval
-    /// `depth` = search depth (higher depth = more weight)
     #[inline]
-    pub fn update(&mut self, color: Color, pawn_hash: u64, depth: i32, diff: i32) {
-        let c = color.index();
-        let idx = (pawn_hash as usize) % CORRECTION_SIZE;
-
-        // Bonus scaled by depth (higher depth = more reliable)
-        let bonus = (diff * depth).clamp(-CORRECTION_MAX / 4, CORRECTION_MAX / 4);
-
-        // Apply gravity update (same as history table)
-        let old = i32::from(self.table[c][idx]);
-        let new = old + bonus - old * bonus.abs() / CORRECTION_MAX;
-        self.table[c][idx] = new.clamp(-CORRECTION_MAX, CORRECTION_MAX) as i16;
+    pub fn update(&mut self, c: Color, h: u64, d: i32, diff: i32) {
+        let ci = c.index();
+        let i = (h as usize) % CORRECTION_SIZE;
+        let b = (diff * d).clamp(-CORRECTION_MAX / 4, CORRECTION_MAX / 4);
+        let old = self.table[ci][i] as i32;
+        let new = old + b - old * b.abs() / CORRECTION_MAX;
+        self.table[ci][i] = new.clamp(-CORRECTION_MAX, CORRECTION_MAX) as i16;
     }
 
-    /// Age correction values (divide by 2).
-    /// Call at start of new search to give more weight to recent data.
     pub fn age(&mut self) {
-        for color in &mut self.table {
-            for entry in color {
-                *entry /= 2;
-            }
-        }
+        for c in &mut self.table { for e in c { *e /= 2; } }
     }
 }
 

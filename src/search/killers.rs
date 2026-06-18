@@ -8,68 +8,36 @@ use crate::types::{Move, Ply, MAX_PLY};
 /// Number of killer move slots per ply
 const NUM_KILLERS: usize = 2;
 
-/// Killer moves table
-/// Stores 2 killer moves per ply that caused beta cutoffs
 #[derive(Clone)]
 pub struct KillerTable {
     killers: [[Option<Move>; NUM_KILLERS]; MAX_PLY as usize],
 }
 
 impl KillerTable {
-    /// Create a new empty killer table
-    pub fn new() -> Self {
-        Self {
-            killers: [[None; NUM_KILLERS]; MAX_PLY as usize],
-        }
-    }
+    pub fn new() -> Self { Self { killers: [[None; NUM_KILLERS]; MAX_PLY as usize] } }
 
-    /// Store a killer move at the given ply
-    /// Shifts existing killers (slot 1 becomes slot 0) if different
     #[inline]
-    pub fn store(&mut self, ply: Ply, mv: Move) {
-        let idx = ply.raw() as usize;
-        if idx >= MAX_PLY as usize {
-            return;
-        }
-
-        // Don't store if it's already killer 0
-        if self.killers[idx][0] == Some(mv) {
-            return;
-        }
-
-        // Shift killer 0 to killer 1, store new move as killer 0
-        self.killers[idx][1] = self.killers[idx][0];
-        self.killers[idx][0] = Some(mv);
+    pub fn store(&mut self, p: Ply, m: Move) {
+        let i = p.raw() as usize;
+        if i >= MAX_PLY as usize || self.killers[i][0] == Some(m) { return; }
+        self.killers[i][1] = self.killers[i][0];
+        self.killers[i][0] = Some(m);
     }
 
-    /// Get killer moves at the given ply
     #[inline]
-    pub fn get(&self, ply: Ply) -> [Option<Move>; NUM_KILLERS] {
-        let idx = ply.raw() as usize;
-        if idx >= MAX_PLY as usize {
-            return [None; NUM_KILLERS];
-        }
-        self.killers[idx]
+    pub fn get(&self, p: Ply) -> [Option<Move>; NUM_KILLERS] {
+        let i = p.raw() as usize;
+        if i >= MAX_PLY as usize { [None; NUM_KILLERS] } else { self.killers[i] }
     }
 
-    /// Check if a move is a killer at the given ply
     #[inline]
-    pub fn is_killer(&self, ply: Ply, mv: Move) -> Option<usize> {
-        let killers = self.get(ply);
-        if killers[0] == Some(mv) {
-            Some(0)
-        } else if killers[1] == Some(mv) {
-            Some(1)
-        } else {
-            None
-        }
+    pub fn is_killer(&self, p: Ply, m: Move) -> Option<usize> {
+        let ks = self.get(p);
+        if ks[0] == Some(m) { Some(0) } else if ks[1] == Some(m) { Some(1) } else { None }
     }
 
-    /// Clear all killers (call at start of new search)
     pub fn clear(&mut self) {
-        for ply_killers in &mut self.killers {
-            *ply_killers = [None; NUM_KILLERS];
-        }
+        for pk in &mut self.killers { *pk = [None; NUM_KILLERS]; }
     }
 }
 

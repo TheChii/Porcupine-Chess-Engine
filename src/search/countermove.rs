@@ -5,47 +5,28 @@
 
 use crate::types::Move;
 
-/// Counter-move table: [from_sq][to_sq] -> counter move
-/// Stores the move that refuted a given opponent move
 #[derive(Clone)]
 pub struct CounterMoveTable {
     table: [[Option<Move>; 64]; 64],
 }
 
 impl CounterMoveTable {
-    /// Create a new empty counter-move table
-    pub fn new() -> Self {
-        Self {
-            table: [[None; 64]; 64],
-        }
-    }
+    pub fn new() -> Self { Self { table: [[None; 64]; 64] } }
 
-    /// Store a counter-move for the opponent's previous move
     #[inline]
-    pub fn store(&mut self, opponent_move: Move, counter: Move) {
-        let from = opponent_move.from().index() as usize;
-        let to = opponent_move.to().index() as usize;
-        self.table[from][to] = Some(counter);
+    pub fn store(&mut self, m: Move, c: Move) {
+        self.table[m.from().index() as usize][m.to().index() as usize] = Some(c);
     }
 
-    /// Get the counter-move for the opponent's previous move
     #[inline]
-    pub fn get(&self, opponent_move: Move) -> Option<Move> {
-        let from = opponent_move.from().index() as usize;
-        let to = opponent_move.to().index() as usize;
-        self.table[from][to]
+    pub fn get(&self, m: Move) -> Option<Move> {
+        self.table[m.from().index() as usize][m.to().index() as usize]
     }
 
-    /// Check if a move is the counter-move for the opponent's previous move
     #[inline]
-    pub fn is_counter(&self, opponent_move: Move, mv: Move) -> bool {
-        self.get(opponent_move) == Some(mv)
-    }
+    pub fn is_counter(&self, m: Move, c: Move) -> bool { self.get(m) == Some(c) }
 
-    /// Clear all counter-moves (typically on new game, not new search)
-    pub fn clear(&mut self) {
-        self.table = [[None; 64]; 64];
-    }
+    pub fn clear(&mut self) { self.table = [[None; 64]; 64]; }
 }
 
 impl Default for CounterMoveTable {

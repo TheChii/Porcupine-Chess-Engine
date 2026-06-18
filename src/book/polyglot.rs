@@ -18,73 +18,49 @@ pub struct BookEntry {
 }
 
 impl BookEntry {
-    fn from_bytes(bytes: &[u8; 16]) -> Self {
+    fn from_bytes(b: &[u8; 16]) -> Self {
         Self {
-            key: u64::from_be_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-            ]),
-            raw_move: u16::from_be_bytes([bytes[8], bytes[9]]),
-            weight: u16::from_be_bytes([bytes[10], bytes[11]]),
-            learn: u32::from_be_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+            key: u64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]),
+            raw_move: u16::from_be_bytes([b[8], b[9]]),
+            weight: u16::from_be_bytes([b[10], b[11]]),
+            learn: u32::from_be_bytes([b[12], b[13], b[14], b[15]]),
         }
     }
 
     pub fn decode_move(&self) -> (Square, Square, Option<Piece>) {
-        let to_file = (self.raw_move & 0x7) as u8;
-        let to_rank = ((self.raw_move >> 3) & 0x7) as u8;
-        let from_file = ((self.raw_move >> 6) & 0x7) as u8;
-        let from_rank = ((self.raw_move >> 9) & 0x7) as u8;
-        let promo = ((self.raw_move >> 12) & 0x7) as usize;
+        let tf = (self.raw_move & 0x7) as u8;
+        let tr = ((self.raw_move >> 3) & 0x7) as u8;
+        let ff = ((self.raw_move >> 6) & 0x7) as u8;
+        let fr = ((self.raw_move >> 9) & 0x7) as u8;
+        let p = ((self.raw_move >> 12) & 0x7) as usize;
 
-        let from = Square::from_file_rank(
-            File::from_index(from_file).unwrap(),
-            Rank::from_index(from_rank).unwrap(),
-        );
-        let to = Square::from_file_rank(
-            File::from_index(to_file).unwrap(),
-            Rank::from_index(to_rank).unwrap(),
-        );
+        let from = Square::from_file_rank(File::from_index(ff).unwrap(), Rank::from_index(fr).unwrap());
+        let to = Square::from_file_rank(File::from_index(tf).unwrap(), Rank::from_index(tr).unwrap());
 
-        let promotion = match promo {
-            1 => Some(Piece::Knight),
-            2 => Some(Piece::Bishop),
-            3 => Some(Piece::Rook),
-            4 => Some(Piece::Queen),
-            _ => None,
-        };
-        (from, to, promotion)
+        let promo = match p { 1 => Some(Piece::Knight), 2 => Some(Piece::Bishop), 3 => Some(Piece::Rook), 4 => Some(Piece::Queen), _ => None };
+        (from, to, promo)
     }
 
-    pub fn to_chess_move(&self, board: &Board) -> Option<Move> {
-        let (from, to, promo) = self.decode_move();
-        let actual_to = self.adjust_castling_move(board, from, to);
-
-        for m in board.generate_moves().iter() {
-            if m.from() == from && m.to() == actual_to {
-                if promo.is_some() {
-                    if m.flag().promotion_piece() == promo {
-                        return Some(m);
-                    }
-                } else if m.flag().promotion_piece().is_none() {
-                    return Some(m);
-                }
+    pub fn to_chess_move(&self, b: &Board) -> Option<Move> {
+        let (f, t, p) = self.decode_move();
+        let at = self.adjust_castling_move(b, f, t);
+        for m in b.generate_moves().iter() {
+            if m.from() == f && m.to() == at {
+                if p.is_some() { if m.flag().promotion_piece() == p { return Some(m); } }
+                else if m.flag().promotion_piece().is_none() { return Some(m); }
             }
         }
         None
     }
 
-    fn adjust_castling_move(&self, board: &Board, from: Square, to: Square) -> Square {
-        if let Some((piece, _)) = board.piece_at(from) {
-            if piece == Piece::King && from.file() == File::E {
-                if to.file() == File::H {
-                    return Square::from_file_rank(File::G, to.rank());
-                }
-                if to.file() == File::A {
-                    return Square::from_file_rank(File::C, to.rank());
-                }
+    fn adjust_castling_move(&self, b: &Board, f: Square, t: Square) -> Square {
+        if let Some((p, _)) = b.piece_at(f) {
+            if p == Piece::King && f.file() == File::E {
+                if t.file() == File::H { return Square::from_file_rank(File::G, t.rank()); }
+                if t.file() == File::A { return Square::from_file_rank(File::C, t.rank()); }
             }
         }
-        to
+        t
     }
 }
 
@@ -134,66 +110,42 @@ impl PolyglotBook {
         }
     }
 
-    pub fn probe(&self, board: &Board) -> Vec<BookEntry> {
-        self.find_entries(polyglot_hash(board))
+    pub fn probe(&self, b: &Board) -> Vec<BookEntry> { self.find_entries(polyglot_hash(b)) }
+
+    pub fn probe_move(&self, b: &Board) -> Option<Move> {
+        let es = self.probe(b);
+        if es.is_empty() { return None; }
+        let t: u32 = es.iter().map(|e| e.weight as u32).sum();
+        if t == 0 { return es[0].to_chess_move(b); }
+        let s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(12345);
+        let r = s.wrapping_mul(6364136223846793005).wrapping_add(1) % t as u64;
+        let mut c = 0u64;
+        for e in &es {
+            c += e.weight as u64;
+            if r < c { return e.to_chess_move(b); }
+        }
+        es[0].to_chess_move(b)
     }
 
-    pub fn probe_move(&self, board: &Board) -> Option<Move> {
-        let entries = self.probe(board);
-        if entries.is_empty() {
-            return None;
-        }
-        let total: u32 = entries.iter().map(|e| e.weight as u32).sum();
-        if total == 0 {
-            return entries[0].to_chess_move(board);
-        }
-
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(12345);
-        let random = seed.wrapping_mul(6364136223846793005).wrapping_add(1) % total as u64;
-
-        let mut cum = 0u64;
-        for e in &entries {
-            cum += e.weight as u64;
-            if random < cum {
-                return e.to_chess_move(board);
-            }
-        }
-        entries[0].to_chess_move(board)
+    pub fn probe_best_move(&self, b: &Board) -> Option<Move> {
+        self.probe(b).iter().max_by_key(|e| e.weight).and_then(|e| e.to_chess_move(b))
     }
 
-    pub fn probe_best_move(&self, board: &Board) -> Option<Move> {
-        self.probe(board)
-            .iter()
-            .max_by_key(|e| e.weight)
-            .and_then(|e| e.to_chess_move(board))
-    }
-
-    fn find_entries(&self, key: u64) -> Vec<BookEntry> {
+    fn find_entries(&self, k: u64) -> Vec<BookEntry> {
         match &self.data {
-            BookData::Memory(e) => self.find_mem(e, key),
-            BookData::File { path } => self.find_file(path, key).unwrap_or_default(),
+            BookData::Memory(e) => self.find_mem(e, k),
+            BookData::File { path } => self.find_file(path, k).unwrap_or_default(),
         }
     }
 
-    fn find_mem(&self, entries: &[BookEntry], key: u64) -> Vec<BookEntry> {
-        let idx = match entries.binary_search_by_key(&key, |e| e.key) {
-            Ok(i) => i,
-            Err(_) => return vec![],
-        };
-        let mut start = idx;
-        while start > 0 && entries[start - 1].key == key {
-            start -= 1;
-        }
-        let mut res = vec![];
-        let mut i = start;
-        while i < entries.len() && entries[i].key == key {
-            res.push(entries[i]);
-            i += 1;
-        }
-        res
+    fn find_mem(&self, es: &[BookEntry], k: u64) -> Vec<BookEntry> {
+        let i = match es.binary_search_by_key(&k, |e| e.key) { Ok(i) => i, Err(_) => return vec![] };
+        let mut s = i;
+        while s > 0 && es[s - 1].key == k { s -= 1; }
+        let mut r = vec![];
+        let mut j = s;
+        while j < es.len() && es[j].key == k { r.push(es[j]); j += 1; }
+        r
     }
 
     fn find_file(&self, path: &str, key: u64) -> io::Result<Vec<BookEntry>> {
@@ -226,10 +178,6 @@ impl PolyglotBook {
         Ok(res)
     }
 
-    pub fn len(&self) -> usize {
-        self.entry_count
-    }
-    pub fn is_empty(&self) -> bool {
-        self.entry_count == 0
-    }
+    pub fn len(&self) -> usize { self.entry_count }
+    pub fn is_empty(&self) -> bool { self.entry_count == 0 }
 }

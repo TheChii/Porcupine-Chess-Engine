@@ -39,45 +39,22 @@ pub struct SearchLimits {
 }
 
 impl SearchLimits {
-    /// Default move overhead for timing safety (ms)
     pub const DEFAULT_MOVE_OVERHEAD: u64 = 50;
 
-    pub fn new() -> Self {
-        Self {
-            move_overhead: Self::DEFAULT_MOVE_OVERHEAD,
-            ..Default::default()
-        }
-    }
+    pub fn new() -> Self { Self { move_overhead: Self::DEFAULT_MOVE_OVERHEAD, ..Default::default() } }
 
-    pub fn depth(depth: i32) -> Self {
-        Self {
-            depth: Some(Depth::new(depth)),
-            move_overhead: Self::DEFAULT_MOVE_OVERHEAD,
-            ..Default::default()
-        }
-    }
+    pub fn depth(d: i32) -> Self { Self { depth: Some(Depth::new(d)), move_overhead: Self::DEFAULT_MOVE_OVERHEAD, ..Default::default() } }
 
-    pub fn from_params(params: &SearchParams) -> Self {
+    pub fn from_params(p: &SearchParams) -> Self {
         Self {
-            depth: params.depth,
-            movetime: params.movetime,
-            nodes: params.nodes,
-            wtime: params.wtime,
-            btime: params.btime,
-            winc: params.winc,
-            binc: params.binc,
-            movestogo: params.movestogo,
-            infinite: params.infinite,
-            ponder: params.ponder,
+            depth: p.depth, movetime: p.movetime, nodes: p.nodes,
+            wtime: p.wtime, btime: p.btime, winc: p.winc, binc: p.binc,
+            movestogo: p.movestogo, infinite: p.infinite, ponder: p.ponder,
             move_overhead: Self::DEFAULT_MOVE_OVERHEAD,
         }
     }
 
-    /// Set move overhead (from UCI option)
-    pub fn with_move_overhead(mut self, overhead: u64) -> Self {
-        self.move_overhead = overhead;
-        self
-    }
+    pub fn with_move_overhead(mut self, o: u64) -> Self { self.move_overhead = o; self }
 }
 
 /// Time manager for search with soft and hard limits
@@ -99,14 +76,7 @@ pub struct TimeManager {
 
 impl TimeManager {
     pub fn new() -> Self {
-        Self {
-            soft_limit: u64::MAX,
-            hard_limit: u64::MAX,
-            _move_overhead: 10,
-            infinite: true,
-            ponder: false,
-            start_time: Some(Instant::now()),
-        }
+        Self { soft_limit: u64::MAX, hard_limit: u64::MAX, _move_overhead: 10, infinite: true, ponder: false, start_time: Some(Instant::now()) }
     }
 
     /// Create time manager from search limits
@@ -213,84 +183,25 @@ impl TimeManager {
         }
     }
 
-    /// Start the timer (call at search start)
-    pub fn start(&mut self) {
-        self.start_time = Some(Instant::now());
-    }
+    pub fn start(&mut self) { self.start_time = Some(Instant::now()); }
+    pub fn elapsed(&self) -> u64 { self.start_time.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0) }
+    pub fn should_stop(&self) -> bool { if self.infinite || self.ponder { false } else { self.elapsed() >= self.hard_limit } }
+    pub fn can_start_iteration(&self) -> bool { if self.infinite || self.ponder { true } else { self.elapsed() < self.soft_limit } }
+    pub fn soft_limit_exceeded(&self) -> bool { if self.infinite || self.ponder { false } else { self.elapsed() >= self.soft_limit } }
+    pub fn hard_limit_exceeded(&self) -> bool { if self.infinite || self.ponder { false } else { self.elapsed() >= self.hard_limit } }
 
-    /// Get elapsed time in milliseconds
-    pub fn elapsed(&self) -> u64 {
-        self.start_time
-            .map(|t| t.elapsed().as_millis() as u64)
-            .unwrap_or(0)
-    }
-
-    /// Check if we should stop searching (hard limit - for mid-search check)
-    pub fn should_stop(&self) -> bool {
-        if self.infinite || self.ponder {
-            return false;
-        }
-        self.elapsed() >= self.hard_limit
-    }
-
-    /// Check if we can start a new iteration (soft limit)
-    pub fn can_start_iteration(&self) -> bool {
-        if self.infinite || self.ponder {
-            return true;
-        }
-        // Start new iteration if we have time remaining below soft limit
-        // and predict we can complete at least a partial iteration
-        self.elapsed() < self.soft_limit
-    }
-
-    /// Check if we've exceeded soft limit (use between iterations)
-    pub fn soft_limit_exceeded(&self) -> bool {
-        if self.infinite || self.ponder {
-            return false;
-        }
-        self.elapsed() >= self.soft_limit
-    }
-
-    /// Hard stop check (absolute limit - never exceed)
-    pub fn hard_limit_exceeded(&self) -> bool {
-        if self.infinite || self.ponder {
-            return false;
-        }
-        self.elapsed() >= self.hard_limit
-    }
-
-    /// Extend time limits (when search is in trouble, e.g., score dropped)
-    /// factor > 1.0 extends time, factor < 1.0 reduces time
     #[allow(dead_code)]
     pub fn extend_time(&mut self, factor: f64) {
         if !self.infinite {
             self.soft_limit = ((self.soft_limit as f64) * factor) as u64;
-            // Hard limit extends less aggressively
             self.hard_limit = ((self.hard_limit as f64) * factor.sqrt()) as u64;
         }
     }
 
-    /// Get the soft limit in ms
-    pub fn soft_limit_ms(&self) -> u64 {
-        self.soft_limit
-    }
-
-    /// Get the hard limit in ms
-    pub fn hard_limit_ms(&self) -> u64 {
-        self.hard_limit
-    }
-
-    /// Check if this is an infinite search
-    pub fn is_infinite(&self) -> bool {
-        self.infinite || self.ponder
-    }
-
-    /// Switch from ponder mode to normal search mode
-    pub fn ponderhit(&mut self) {
-        self.ponder = false;
-        // The time elapsed since the search started continues to count
-        // toward the calculated soft_limit and hard_limit.
-    }
+    pub fn soft_limit_ms(&self) -> u64 { self.soft_limit }
+    pub fn hard_limit_ms(&self) -> u64 { self.hard_limit }
+    pub fn is_infinite(&self) -> bool { self.infinite || self.ponder }
+    pub fn ponderhit(&mut self) { self.ponder = false; }
 }
 
 impl Default for TimeManager {

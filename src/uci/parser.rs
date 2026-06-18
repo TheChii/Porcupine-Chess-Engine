@@ -3,37 +3,23 @@
 use super::SearchParams;
 use crate::types::Depth;
 
-/// Parsed UCI command
 #[derive(Debug, Clone)]
 pub enum UciCommand {
-    /// "uci" - Initialize UCI mode
     Uci,
-    /// "debug on/off"
     Debug(bool),
-    /// "isready" - Synchronization
     IsReady,
-    /// "setoption name X value Y"
     SetOption { name: String, value: Option<String> },
-    /// "register" - Registration (we ignore this)
     Register,
-    /// "ucinewgame" - New game starting
     UciNewGame,
-    /// "position startpos/fen [moves ...]"
     Position {
         fen: Option<String>,
         moves: Vec<String>,
     },
-    /// "go ..." - Start searching
     Go(SearchParams),
-    /// "stop" - Stop searching
     Stop,
-    /// "ponderhit" - Opponent played expected move
     PonderHit,
-    /// "quit" - Exit the engine
     Quit,
-    /// "d" - Debug: display board (non-standard but common)
     Display,
-    /// Unknown command
     Unknown(String),
 }
 
@@ -106,10 +92,9 @@ fn parse_position<'a>(parts: &mut impl Iterator<Item = &'a str>) -> UciCommand {
     while let Some(token) = parts.next() {
         match token {
             "startpos" => {
-                fen = None; // Use default start position
+                fen = None;
             }
             "fen" => {
-                // Collect FEN string (6 parts)
                 let mut fen_parts = Vec::new();
                 for _ in 0..6 {
                     if let Some(part) = parts.next() {
@@ -204,11 +189,8 @@ fn parse_go<'a>(parts: &mut impl Iterator<Item = &'a str>) -> UciCommand {
                 }
             }
             "searchmoves" => {
-                // Remaining tokens are moves
-                // We'll parse them later when we have the board
                 i += 1;
                 while i < tokens.len() {
-                    // Store as strings for now, will be parsed with board context
                     i += 1;
                 }
             }

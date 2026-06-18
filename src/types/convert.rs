@@ -6,9 +6,6 @@
 use movegen::{Color as MovegenColor, Piece as MovegenPiece, Square as MovegenSquare};
 use nnue::{Color as NnueColor, Piece as NnuePiece, Square as NnueSquare};
 
-/// Trait for converting movegen crate types to nnue crate types.
-///
-/// Implementations are `#[inline]` for zero-cost abstraction.
 pub trait ToNnue {
     type Output;
     fn to_nnue(self) -> Self::Output;
@@ -16,20 +13,14 @@ pub trait ToNnue {
 
 impl ToNnue for MovegenSquare {
     type Output = NnueSquare;
-
     #[inline]
-    fn to_nnue(self) -> NnueSquare {
-        // Both crates use A1=0, H8=63 ordering
-        NnueSquare::from_index(self.index() as usize)
-    }
+    fn to_nnue(self) -> NnueSquare { NnueSquare::from_index(self.index() as usize) }
 }
 
 impl ToNnue for MovegenPiece {
     type Output = NnuePiece;
-
     #[inline]
     fn to_nnue(self) -> NnuePiece {
-        // Piece ordering: Pawn, Knight, Bishop, Rook, Queen, King
         match self {
             MovegenPiece::Pawn => NnuePiece::Pawn,
             MovegenPiece::Knight => NnuePiece::Knight,
@@ -43,7 +34,6 @@ impl ToNnue for MovegenPiece {
 
 impl ToNnue for MovegenColor {
     type Output = NnueColor;
-
     #[inline]
     fn to_nnue(self) -> NnueColor {
         match self {
@@ -53,14 +43,9 @@ impl ToNnue for MovegenColor {
     }
 }
 
-/// Helper to get the opposite color in nnue terms
 #[inline]
-#[allow(dead_code)]
 pub fn nnue_color_flip(c: NnueColor) -> NnueColor {
-    match c {
-        NnueColor::White => NnueColor::Black,
-        NnueColor::Black => NnueColor::White,
-    }
+    match c { NnueColor::White => NnueColor::Black, _ => NnueColor::White }
 }
 
 #[cfg(test)]
