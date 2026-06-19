@@ -16,22 +16,22 @@ import threading
 ENGINE_PATH = "./target/release/porcupine"
 BOOKS = {
     # 1. Core strength backbone — 80%
-    "books/UHO_4060_v4.epd": {"weight": 40, "type": "epd", "skip_plies": 4},
+    "books/UHO_4060_v4.epd": {"weight": 20, "type": "epd", "skip_plies": 4},
     "books/UHO_XXL_2022_+120_+149.pgn": {"weight": 20, "type": "pgn", "skip_plies": 6},
-    "books/UHO_MEGA_2022_+110_+149.pgn": {"weight": 20, "type": "pgn", "skip_plies": 6},
+    "books/UHO_MEGA_2022_+110_+149.pgn": {"weight": 60, "type": "pgn", "skip_plies": 6},
 
     # 2. Human + engine realism blend — 5%
-    "books/popularpos_lichess_v3.epd": {"weight": 2, "type": "epd", "skip_plies": 4},
-    "books/bjbraams_chessdb_198350_lines.pgn": {"weight": 3, "type": "pgn", "skip_plies": 6},
+    "books/popularpos_lichess_v3.epd": {"weight": 0, "type": "epd", "skip_plies": 4},
+    "books/bjbraams_chessdb_198350_lines.pgn": {"weight": 0, "type": "pgn", "skip_plies": 6},
 
     # 3. Sharp / high-pressure positions — 10%
-    "books/UHO_Lichess_4852_v1.epd": {"weight": 4, "type": "epd", "skip_plies": 4},
-    "books/UHO_XXL_+1.00_+1.29.pgn": {"weight": 3, "type": "pgn", "skip_plies": 6},
-    "books/8mvs_big_+80_+109.epd": {"weight": 3, "type": "epd", "skip_plies": 4},
+    "books/UHO_Lichess_4852_v1.epd": {"weight": 0, "type": "epd", "skip_plies": 4},
+    "books/UHO_XXL_+1.00_+1.29.pgn": {"weight": 0, "type": "pgn", "skip_plies": 6},
+    "books/8mvs_big_+80_+109.epd": {"weight": 0, "type": "epd", "skip_plies": 4},
 
     # 4. Opening diversity layer — 5%
-    "books/2moves_v2.pgn": {"weight": 3, "type": "pgn", "skip_plies": 4},
-    "books/4mvs_+90_+99.epd": {"weight": 2, "type": "epd", "skip_plies": 4}
+    "books/2moves_v2.pgn": {"weight": 0, "type": "pgn", "skip_plies": 4},
+    "books/4mvs_+90_+99.epd": {"weight": 0, "type": "epd", "skip_plies": 4}
 }
 OUTPUT_FILE = "dataset.txt"
 DEPTH = 12
@@ -277,8 +277,9 @@ def worker_process(worker_id, loaded_books, write_queue, stop_event):
             if abs(score_cp) > ADJUDICATION_THRESHOLD:
                 adj_counter += 1
                 if adj_counter >= 6:
-                    side = 'w' if board.turn else 'b'
-                    result = (1.0 if side == 'w' else 0.0) if score_cp > 0 else (1.0 if side == 'b' else 0.0)
+                    # score_cp was from pre-push STM; board.turn has flipped
+                    pre_push_stm = 'b' if board.turn else 'w'
+                    result = (1.0 if pre_push_stm == 'w' else 0.0) if score_cp > 0 else (1.0 if pre_push_stm == 'b' else 0.0)
                     break
             else:
                 adj_counter = 0

@@ -56,7 +56,7 @@ impl UciHandler {
 
         // Load embedded Porcupine NNUE (custom model)
         let model = crate::eval::porcupine_nnue::Model::load_embedded();
-        eprintln!("info string Porcupine NNUE loaded: 768->128->1 (network.bin)");
+        eprintln!("info string Porcupine LOD-NNUE v2.2 (Nano) loaded: 22528->32->32->16->1 (network.bin)");
         searcher.porcupine = Some(model);
 
         let shared = searcher.shared.clone();

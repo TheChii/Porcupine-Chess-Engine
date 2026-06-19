@@ -18,7 +18,7 @@ pub use porcupine_nnue::PorcupineEvaluator;
 pub enum EvalMethod {
     Hce,
     Nnue,      // Default HalfKP
-    Porcupine, // Custom 768->128->1
+    Porcupine, // LOD-NNUE v2.2 (Nano) HalfKP 22528->32->32->16->1
 }
 
 /// Evaluator wrapper that handles NNUE or HCE evaluation
@@ -27,6 +27,7 @@ pub enum SearchEvaluator<'a> {
     Nnue(NnueEvaluator<'a>),
     Porcupine(PorcupineEvaluator),
     Hce,
+    Dummy999,
 }
 
 impl<'a> SearchEvaluator<'a> {
@@ -42,11 +43,12 @@ impl<'a> SearchEvaluator<'a> {
         // Comment/uncomment exactly ONE of the 'return' lines below
         // to change the engine's evaluation method:
 
-        // 1. Porcupine Custom NNUE (768->128->1)
-        //return if let Some(m) = _porcupine { Self::Porcupine(PorcupineEvaluator::new(std::sync::Arc::new(m.clone()), _board)) } else { Self::Hce };
-
+        // 1. Porcupine LOD-NNUE v2.2 (Nano) HalfKP
+        // return if let Some(m) = _porcupine { Self::Porcupine(PorcupineEvaluator::new(std::sync::Arc::new(m.clone()), _board)) } else { Self::Hce };
+        return if let Some(m) = _porcupine { Self::Porcupine(PorcupineEvaluator::new(std::sync::Arc::new(m.clone()), _board)) } else { Self::Dummy999 };
+        
         // 2. Pure HCE (Hand-Crafted Evaluation)
-        return Self::Hce;
+        //return Self::Hce;
 
         // 3. Default HalfKP NNUE (with HCE endgame fallback)
         // return if let Some(m) = _model { Self::Nnue(NnueEvaluator::new(m, _board)) } else { Self::Hce };
@@ -64,6 +66,7 @@ impl<'a> SearchEvaluator<'a> {
                 e.evaluate(ply, board.turn())
             }
             Self::Hce => hce::evaluate(board),
+            Self::Dummy999 => Score::cp(999),
         }
     }
 
@@ -73,6 +76,7 @@ impl<'a> SearchEvaluator<'a> {
             Self::Nnue(e) => e.update_move(ply, board, m),
             Self::Porcupine(e) => e.update_move(ply, board, m),
             Self::Hce => true, // HCE is stateless
+            Self::Dummy999 => true,
         }
     }
 
@@ -82,6 +86,7 @@ impl<'a> SearchEvaluator<'a> {
             Self::Nnue(e) => e.refresh(ply, board),
             Self::Porcupine(e) => e.refresh(ply, board),
             Self::Hce => (),
+            Self::Dummy999 => (),
         }
     }
 }

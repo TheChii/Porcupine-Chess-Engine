@@ -5,220 +5,329 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import chess
 import os
-import time
 from tqdm import tqdm
-import multiprocessing as mp
 
-# Constants
-INPUT_SIZE = 768  # 2 * 6 * 64
-HIDDEN_SIZE = 128
-SCALE = 400.0
-BATCH_SIZE = 4096
-EPOCHS = 20
-LEARNING_RATE = 0.001
+# ============================================================
+#  LOD-NNUE v2.2 (Nano) — Normalized Symmetric HalfKP
+#  22,528 → 32 (16 Us + 16 Them) → 32 → 16 → 1
+# ============================================================
 
-def fen_to_indices(fen):
-    try:
-        board = chess.Board(fen)
-        indices = []
-        stm = board.turn
-        for sq in chess.SQUARES:
-            piece = board.piece_at(sq)
-            if piece is None:
-                continue
-            pt = piece.piece_type - 1 
-            pc = piece.color
-            if stm == chess.WHITE:
-                my_color = (pc == chess.WHITE)
-                index_sq = sq
-            else:
-                my_color = (pc == chess.BLACK)
-                index_sq = sq ^ 56
-            color_idx = 0 if my_color else 1
-            index = (color_idx * 6 * 64) + (pt * 64) + index_sq
-            indices.append(index)
-        return indices
-    except:
-        return []
+NUM_KING_BUCKETS = 32
+NUM_PIECE_TYPES  = 11   # 5 friendly (P,N,B,R,Q) + 6 enemy (P,N,B,R,Q,K)
+NUM_SQUARES      = 64
+INPUT_SIZE       = NUM_KING_BUCKETS * NUM_PIECE_TYPES * NUM_SQUARES  # 22,528
+ACC_SIZE         = 16   # Per-perspective accumulator width
+L1_SIZE          = 32   # ACC_SIZE * 2  (Us ++ Them)
+L2_SIZE          = 32   # Layer 1 output
+L3_SIZE          = 16   # Layer 2 output
+SCALE            = 400.0
+BATCH_SIZE       = 4096
+LEARNING_RATE    = 0.002
+PATIENCE         = 8
+MAX_EPOCHS       = 200
 
-def parse_line(line):
-    parts = line.strip().split('|')
-    if len(parts) < 3:
-        return None
-    fen = parts[0]
-    score = float(parts[1])
-    indices = fen_to_indices(fen)
-    if not indices:
-        return None
-    # Target is centipawns scaled by 1/SCALE
-    target = score / SCALE
-    return (indices, target)
+dataset_name = "dataset.bin"
+
+# ---- Dataset / DataLoader ----
+
+record_dtype = np.dtype([
+    ('target', np.float32),
+    ('num_stm', np.uint8),
+    ('num_nstm', np.uint8),
+    ('stm_indices', np.int16, (32,)),
+    ('nstm_indices', np.int16, (32,)),
+])
 
 class ChessDataset(Dataset):
-    def __init__(self, file_path, max_samples=None):
-        self.samples = []
-        print(f"Loading data from {file_path} using {mp.cpu_count()} cores...")
-        
-        with open(file_path, 'r') as f:
-            lines = f.readlines()
-            if max_samples:
-                lines = lines[:max_samples]
-        
-        with mp.Pool(mp.cpu_count()) as pool:
-            results = list(tqdm(pool.imap(parse_line, lines), total=len(lines), desc="Parsing FENs"))
-        
-        for r in results:
-            if r:
-                indices, target = r
-                self.samples.append((torch.tensor(indices, dtype=torch.long), torch.tensor(target, dtype=torch.float)))
-        
-        print(f"Loaded {len(self.samples)} valid samples.")
+    def __init__(self, file_path):
+        print(f"Memory-mapping {file_path} for ultra-fast access...")
+        self.data = np.memmap(file_path, dtype=record_dtype, mode='r')
+        print(f"Mapped {len(self.data)} pre-compiled positions.")
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.data)
 
     def __getitem__(self, idx):
-        return self.samples[idx]
+        record = self.data[idx]
+        
+        stm_len = record['num_stm']
+        nstm_len = record['num_nstm']
+        
+        # Extract the exact active indices for this position
+        stm = record['stm_indices'][:stm_len]
+        nstm = record['nstm_indices'][:nstm_len]
+        
+        # Casting to int64 creates a copy, safe for PyTorch
+        return (
+            torch.from_numpy(stm.astype(np.int64)),
+            torch.from_numpy(nstm.astype(np.int64)),
+            torch.tensor(record['target'], dtype=torch.float32),
+        )
 
 def collate_fn(batch):
-    indices_list = [b[0] for b in batch]
-    targets = torch.stack([b[1] for b in batch])
-    
-    offsets = [0] + [len(idx) for idx in indices_list]
-    offsets = torch.tensor(offsets[:-1], dtype=torch.long).cumsum(dim=0)
-    flat_indices = torch.cat(indices_list)
-    
-    return flat_indices, offsets, targets
+    stm_list  = [b[0] for b in batch]
+    nstm_list = [b[1] for b in batch]
+    targets   = torch.stack([b[2] for b in batch])
+
+    stm_offsets  = torch.tensor([0] + [len(s) for s in stm_list][:-1],
+                                dtype=torch.long).cumsum(0)
+    nstm_offsets = torch.tensor([0] + [len(n) for n in nstm_list][:-1],
+                                dtype=torch.long).cumsum(0)
+
+    return (torch.cat(stm_list), stm_offsets,
+            torch.cat(nstm_list), nstm_offsets,
+            targets)
+
+# ---- Model ----
 
 class NNUE(nn.Module):
     def __init__(self):
         super(NNUE, self).__init__()
-        self.embedding = nn.EmbeddingBag(INPUT_SIZE, HIDDEN_SIZE, mode='sum')
-        self.fc = nn.Linear(HIDDEN_SIZE, 1)
-        
-        # Initialize embedding weights to keep the sum around 0.5 (center of CReLU)
-        # Since there are typically 32 pieces on the board, mean should be 0.5 / 32
-        nn.init.normal_(self.embedding.weight, mean=0.5 / 32, std=0.01)
-        # Initialize output weights to be small
-        nn.init.normal_(self.fc.weight, mean=0.0, std=0.01)
-        nn.init.constant_(self.fc.bias, 0.0)
+        # Layer 0: shared accumulator  22,528 → 16  (per perspective)
+        self.accumulator = nn.EmbeddingBag(INPUT_SIZE, ACC_SIZE, mode='sum')
+        self.acc_bias    = nn.Parameter(torch.zeros(ACC_SIZE))
 
-    def forward(self, flat_indices, offsets):
-        x = self.embedding(flat_indices, offsets)
-        x = torch.clamp(x, 0.0, 1.0) # CReLU
-        x = self.fc(x)
+        # Layer 1: 32 → 32   (CReLU)
+        self.fc1 = nn.Linear(ACC_SIZE * 2, L2_SIZE)
+        # Layer 2: 32 → 16   (CReLU)
+        self.fc2 = nn.Linear(L2_SIZE, L3_SIZE)
+        # Layer 3: 16 → 1    (output)
+        self.fc3 = nn.Linear(L3_SIZE, 1)
+
+        # Initialization
+        nn.init.uniform_(self.accumulator.weight, -0.1, 0.1)
+        nn.init.kaiming_uniform_(self.fc1.weight, nonlinearity='relu')
+        nn.init.constant_(self.fc1.bias, 0.0)
+        nn.init.kaiming_uniform_(self.fc2.weight, nonlinearity='relu')
+        nn.init.constant_(self.fc2.bias, 0.0)
+        nn.init.kaiming_uniform_(self.fc3.weight, nonlinearity='relu')
+        nn.init.constant_(self.fc3.bias, 0.0)
+
+    def forward(self, stm_idx, stm_off, nstm_idx, nstm_off):
+        stm  = self.accumulator(stm_idx,  stm_off)  + self.acc_bias
+        nstm = self.accumulator(nstm_idx, nstm_off)  + self.acc_bias
+
+        # CReLU on accumulators
+        stm  = torch.clamp(stm,  0.0, 1.0)
+        nstm = torch.clamp(nstm, 0.0, 1.0)
+
+        # Concatenate: [Us, Them]  → 32
+        x = torch.cat([stm, nstm], dim=1)
+
+        # Layer 1: CReLU
+        x = self.fc1(x)
+        x = torch.clamp(x, 0.0, 1.0)
+
+        # Layer 2: CReLU
+        x = self.fc2(x)
+        x = torch.clamp(x, 0.0, 1.0)
+
+        # Layer 3: output (raw logit for BCEWithLogitsLoss)
+        x = self.fc3(x)
         return x.squeeze()
+
+# ---- Training loop ----
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on {device}")
 
-    # For safety, let's first check if saving and loading works with 100 samples
-    print("Performing dry run check...")
-    test_dataset = ChessDataset('dataset_corrected.txt', max_samples=100)
-    if len(test_dataset) == 0:
-        print("Error: Could not load any samples. Check dataset.txt format.")
-        return
-    
-    test_model = NNUE().to(device)
-    torch.save(test_model.state_dict(), "test_save.pt")
-    if os.path.exists("test_save.pt"):
-        test_model.load_state_dict(torch.load("test_save.pt"))
-        print("Dry run: Save/Load OK.")
-        os.remove("test_save.pt")
-    else:
-        print("Error: Save failed.")
-        return
+    dataset = ChessDataset(dataset_name)
 
-    # Load full dataset (or a large portion)
-    dataset = ChessDataset('dataset_corrected.txt')
-    
     train_size = int(0.95 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    val_size   = len(dataset) - train_size
+    generator  = torch.Generator().manual_seed(42)
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        dataset, [train_size, val_size], generator=generator)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, collate_fn=collate_fn, pin_memory=True)
+    pin     = device.type == "cuda"
+    workers = 4 if os.name != 'nt' else 0
 
-    model = NNUE().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    criterion = nn.MSELoss()
+    train_loader = DataLoader(
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True,
+        collate_fn=collate_fn, pin_memory=pin,
+        num_workers=workers, persistent_workers=(workers > 0))
+    val_loader = DataLoader(
+        val_dataset, batch_size=BATCH_SIZE,
+        collate_fn=collate_fn, pin_memory=pin,
+        num_workers=workers, persistent_workers=(workers > 0))
 
-    best_val_loss = float('inf')
-    
-    # Backup directory
+    model     = NNUE().to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=3)
+    criterion = nn.BCEWithLogitsLoss()
+    scaler    = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
+
     os.makedirs("backups", exist_ok=True)
 
+    # Resume from checkpoint if it exists
+    start_epoch     = 0
+    best_val_loss   = float('inf')
+    patience_counter = 0
+
+    if os.path.exists("checkpoint.pt"):
+        print("Resuming from checkpoint...")
+        ckpt = torch.load("checkpoint.pt", weights_only=True)
+        model.load_state_dict(ckpt["model"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+        if scaler is not None and "scaler" in ckpt:
+            scaler.load_state_dict(ckpt["scaler"])
+        start_epoch      = ckpt["epoch"] + 1
+        best_val_loss    = ckpt["best_val_loss"]
+        patience_counter = ckpt["patience_counter"]
+        print(f"Resumed from epoch {start_epoch}, best loss: {best_val_loss:.6f}")
+
+    # Dry-run save/load sanity check
+    print("Performing dry run check...")
+    test_model = NNUE().to(device)
+    torch.save(test_model.state_dict(), "test_save.pt")
+    test_model.load_state_dict(torch.load("test_save.pt", weights_only=True))
+    os.remove("test_save.pt")
+    print("Dry run: Save/Load OK.")
+
+    def save_checkpoint(epoch, interrupted=False):
+        ckpt = {
+            "epoch":            epoch,
+            "model":            model.state_dict(),
+            "optimizer":        optimizer.state_dict(),
+            "scheduler":        scheduler.state_dict(),
+            "scaler":           scaler.state_dict() if scaler else None,
+            "best_val_loss":    best_val_loss,
+            "patience_counter": patience_counter,
+        }
+        torch.save(ckpt, "checkpoint.pt")
+        if epoch % 5 == 0:
+            torch.save(ckpt, f"backups/checkpoint_epoch_{epoch}.pt")
+        if interrupted:
+            torch.save(model.state_dict(), "interrupted_model.pt")
+            save_binary(model, "interrupted_network.bin")
+            print("Saved interrupted model + binary.")
+
+    epoch = start_epoch
     try:
-        for epoch in range(EPOCHS):
+        while epoch < start_epoch + MAX_EPOCHS:
+            # --- train ---
             model.train()
             train_loss = 0
-            pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
-            
-            for i, (flat_indices, offsets, targets) in enumerate(pbar):
-                flat_indices = flat_indices.to(device, non_blocking=True)
-                offsets = offsets.to(device, non_blocking=True)
-                targets = targets.to(device, non_blocking=True)
-                
+            pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}")
+            for i, (si, so, ni, no_, tgt) in enumerate(pbar):
+                si  = si.to(device, non_blocking=True)
+                so  = so.to(device, non_blocking=True)
+                ni  = ni.to(device, non_blocking=True)
+                no_ = no_.to(device, non_blocking=True)
+                tgt = tgt.to(device, non_blocking=True)
+
                 optimizer.zero_grad()
-                outputs = model(flat_indices, offsets)
-                loss = criterion(outputs, targets)
-                loss.backward()
-                optimizer.step()
                 
+                if scaler is not None:
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        outputs = model(si, so, ni, no_)
+                        loss = criterion(outputs, tgt)
+                        
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    outputs = model(si, so, ni, no_)
+                    loss = criterion(outputs, tgt)
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                    
                 train_loss += loss.item()
                 pbar.set_postfix({'loss': train_loss / (i + 1)})
 
-            # Validation
+            # --- validate ---
             model.eval()
             val_loss = 0
             with torch.no_grad():
-                for flat_indices, offsets, targets in val_loader:
-                    flat_indices = flat_indices.to(device, non_blocking=True)
-                    offsets = offsets.to(device, non_blocking=True)
-                    targets = targets.to(device, non_blocking=True)
-                    outputs = model(flat_indices, offsets)
-                    loss = criterion(outputs, targets)
-                    val_loss += loss.item()
-            
-            avg_val_loss = val_loss / len(val_loader)
-            print(f"Validation Loss: {avg_val_loss:.6f}")
+                for si, so, ni, no_, tgt in val_loader:
+                    si  = si.to(device, non_blocking=True)
+                    so  = so.to(device, non_blocking=True)
+                    ni  = ni.to(device, non_blocking=True)
+                    no_ = no_.to(device, non_blocking=True)
+                    tgt = tgt.to(device, non_blocking=True)
+                    
+                    if scaler is not None:
+                        with torch.autocast(device_type='cuda', dtype=torch.float16):
+                            outputs = model(si, so, ni, no_)
+                            loss = criterion(outputs, tgt)
+                    else:
+                        outputs = model(si, so, ni, no_)
+                        loss = criterion(outputs, tgt)
+                        
+                    val_loss += loss.item() * tgt.size(0)
+            avg_val_loss = val_loss / len(val_dataset)
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f"Epoch {epoch+1} | Val Loss: {avg_val_loss:.6f} | LR: {current_lr:.6f}")
 
-            # Backup
-            backup_path = f"backups/model_epoch_{epoch+1}.pt"
-            torch.save(model.state_dict(), backup_path)
-            
+            # --- best model ---
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
+                patience_counter = 0
                 torch.save(model.state_dict(), "best_model.pt")
+                save_binary(model, "best_network.bin")
                 print("New best model saved!")
+            else:
+                patience_counter += 1
+                print(f"No improvement. Patience: {patience_counter}/{PATIENCE}")
+
+            save_checkpoint(epoch)
+            scheduler.step(avg_val_loss)
+            epoch += 1
+
+            if patience_counter >= PATIENCE:
+                print(f"No improvement for {PATIENCE} epochs. Stopping.")
+                save_binary(model, "final_network.bin")
+                break
 
     except KeyboardInterrupt:
-        print("\nTraining interrupted by user. Saving current state...")
-        torch.save(model.state_dict(), "interrupted_model.pt")
+        print("\nInterrupted.")
+        save_checkpoint(epoch, interrupted=True)
 
-    # Final save
-    torch.save(model.state_dict(), "final_model.pt")
-    save_binary(model, "network.bin")
-    print("Training complete. Weights exported to network.bin")
+# ---- Binary weight export ----
+# Layout: accumulator weights, acc bias, fc1 w/b, fc2 w/b, fc3 w/b
 
 def save_binary(model, path):
-    model.cpu()
+    expected_params = (INPUT_SIZE * ACC_SIZE  # accumulator weights
+                       + ACC_SIZE             # accumulator bias
+                       + L1_SIZE * L2_SIZE    # fc1 weights
+                       + L2_SIZE              # fc1 bias
+                       + L2_SIZE * L3_SIZE    # fc2 weights
+                       + L3_SIZE              # fc2 bias
+                       + L3_SIZE * 1          # fc3 weights
+                       + 1)                   # fc3 bias
+    expected_bytes = expected_params * 4  # float32
+
     with open(path, 'wb') as f:
-        # 1. Input weights (EmbeddingBag)
-        # Shape: [768, 128]
-        weights = model.embedding.weight.data.numpy().astype(np.float32)
-        f.write(weights.tobytes())
-        
-        # 2. Output weights (Linear)
-        # Shape: [1, 128]
-        out_weights = model.fc.weight.data.numpy().astype(np.float32)
-        f.write(out_weights.tobytes())
-        
-        # 3. Output bias (Linear)
-        # Shape: [1]
-        out_bias = model.fc.bias.data.numpy().astype(np.float32)
-        f.write(out_bias.tobytes())
+        # Accumulator  [22528 × 16]
+        acc_w = model.accumulator.weight.detach().cpu().numpy().astype(np.float32)
+        f.write(acc_w.tobytes())
+
+        # Accumulator bias [16]
+        acc_b = model.acc_bias.detach().cpu().numpy().astype(np.float32)
+        f.write(acc_b.tobytes())
+
+        # FC1  [32 × 32]  +  [32]
+        f.write(model.fc1.weight.detach().cpu().numpy().astype(np.float32).tobytes())
+        f.write(model.fc1.bias.detach().cpu().numpy().astype(np.float32).tobytes())
+
+        # FC2  [16 × 32]  +  [16]
+        f.write(model.fc2.weight.detach().cpu().numpy().astype(np.float32).tobytes())
+        f.write(model.fc2.bias.detach().cpu().numpy().astype(np.float32).tobytes())
+
+        # FC3  [1 × 16]   +  [1]
+        f.write(model.fc3.weight.detach().cpu().numpy().astype(np.float32).tobytes())
+        f.write(model.fc3.bias.detach().cpu().numpy().astype(np.float32).tobytes())
+
+    actual_bytes = os.path.getsize(path)
+    assert actual_bytes == expected_bytes, (
+        f"Binary size mismatch! Expected {expected_bytes:,} bytes, "
+        f"got {actual_bytes:,} bytes")
 
 if __name__ == "__main__":
     train()

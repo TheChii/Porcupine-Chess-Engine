@@ -6,4 +6,14 @@
 # Reference code (not part of this project)
 viridithas_reference/
 stockfish-*
-*.pt\n*.bin\n*.nnue\n__pycache__/\nvenv/
+*.pt
+*.bin
+*.nnue
+__pycache__/
+venv/
+dataset.bin
+dataset.txt
+dataset_corrected.txt
+flawed_checkpoints/
+backups/
+books/
