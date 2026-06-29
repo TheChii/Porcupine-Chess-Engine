@@ -35,7 +35,7 @@ pub use negamax::SearchResult;
 pub use see::{is_good_capture, see, see_ge};
 pub use tt::TranspositionTable;
 
-use crate::eval::{nnue, SearchEvaluator};
+use crate::eval::SearchEvaluator;
 use crate::types::{Board, Depth, Move, NodeCount, Ply, Score};
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -147,8 +147,7 @@ pub struct Searcher {
     pub pv_length: [usize; 128],
     /// Evaluation method to use
     pub eval_method: crate::eval::EvalMethod,
-    /// NNUE Model (thread-safe reference)
-    pub nnue: Option<nnue::Model>,
+
     /// Porcupine NNUE Model
     pub porcupine: Option<Arc<crate::eval::porcupine_nnue::Model>>,
     /// Position history for repetition detection (stores Zobrist hashes)
@@ -182,10 +181,9 @@ impl Searcher {
             // === EVALUATION METHOD TOGGLE ===
             // Uncomment the line for the method you want to use:
             // eval_method: crate::eval::EvalMethod::Hce,
-            // eval_method: crate::eval::EvalMethod::Nnue,
             eval_method: crate::eval::EvalMethod::Porcupine,
             // ================================
-            nnue: None,
+
             porcupine: None,
             position_history: Vec::with_capacity(512),
             stable_move_count: 0,
@@ -219,10 +217,6 @@ impl Searcher {
         self.num_threads
     }
 
-    /// Set NNUE model
-    pub fn set_nnue(&mut self, model: Option<nnue::Model>) {
-        self.nnue = model;
-    }
 
     /// Set the position to search with history for repetition detection
     pub fn set_position(&mut self, board: Board) {
@@ -353,7 +347,6 @@ impl Searcher {
             pv_table: [[Move::NULL; 128]; 128],
             pv_length: [0; 128],
             eval_method: self.eval_method,
-            nnue: self.nnue.clone(),
             porcupine: self.porcupine.clone(),
             position_history: self.position_history.clone(),
             stable_move_count: 0,
@@ -430,18 +423,16 @@ impl Searcher {
         const INITIAL_WINDOW: i32 = 30;
 
         // Initialize evaluator at root
-        let local_nnue = self.nnue.clone();
         let local_porcupine = self.porcupine.clone();
         let mut root_evaluator = SearchEvaluator::new(
             self.eval_method, 
-            local_nnue.as_ref(), 
             local_porcupine.as_deref(), 
             &self.board
         );
 
         for depth in 1..=max_depth.raw() {
-            // Check if we can start a new iteration
-            if !self.can_start_new_iteration() {
+            // Check if we can start a new iteration (guarantee depth 1!)
+            if depth > 1 && !self.can_start_new_iteration() {
                 break;
             }
 

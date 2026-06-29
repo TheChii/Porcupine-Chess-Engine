@@ -9,12 +9,10 @@
 //! - Provide conversion traits to bridge with nnue types
 //! - Define engine-specific types (Score, Depth, etc.) optimized for search
 
-mod convert;
 mod depth;
 mod score;
 
 // Re-export our custom types
-pub use convert::{nnue_color_flip, ToNnue};
 pub use depth::{Depth, Ply, MAX_DEPTH, MAX_PLY};
 pub use score::{Score, SCORE_DRAW, SCORE_INFINITY, SCORE_MATE, SCORE_NONE};
 

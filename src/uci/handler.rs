@@ -3,7 +3,7 @@
 use super::parser::{parse_command, UciCommand};
 use super::{format_move, parse_move, SearchParams, ENGINE_AUTHOR, ENGINE_NAME};
 use crate::book::PolyglotBook;
-use crate::eval::nnue;
+
 use crate::search::{SearchLimits, Searcher};
 use crate::types::Board;
 use std::io::{self, BufRead, Write};
@@ -42,17 +42,6 @@ impl UciHandler {
     pub fn new() -> Self {
         let mut searcher = Searcher::new();
 
-        // Load embedded NNUE model (compiled into the binary)
-        match nnue::load_embedded_model() {
-            Ok(model) => {
-                // Log to stderr instead of stdout to avoid breaking strict UCI protocol on startup
-                eprintln!("info string NNUE loaded: HalfKP (40960->256x2->32->32->1)");
-                searcher.set_nnue(Some(model));
-            }
-            Err(e) => {
-                eprintln!("info string NNUE load failed: {:?}", e);
-            }
-        }
 
         // Load embedded Porcupine NNUE (custom model)
         let model = crate::eval::porcupine_nnue::Model::load_embedded();
@@ -131,7 +120,6 @@ impl UciHandler {
         let searcher = self.searcher.as_ref().unwrap();
         let mut evaluator = crate::eval::SearchEvaluator::new(
             searcher.eval_method,
-            searcher.nnue.as_ref(),
             searcher.porcupine.as_deref(),
             &self.board
         );
@@ -308,8 +296,6 @@ impl UciHandler {
     fn cmd_ucinewgame(&mut self) {
         self.wait_for_search();
         let mut searcher = self.searcher.take().unwrap();
-        // Preserve NNUE models before resetting
-        let nnue_model = searcher.nnue.take();
         let porcupine_model = searcher.porcupine.take();
         let eval_method = searcher.eval_method;
         let size_mb = searcher.shared.tt.size_mb();
@@ -319,7 +305,6 @@ impl UciHandler {
         let mut new_searcher = Searcher::new();
 
         // Restore NNUE models
-        new_searcher.nnue = nnue_model;
         new_searcher.porcupine = porcupine_model;
         new_searcher.eval_method = eval_method;
         new_searcher.set_hash_size(size_mb);

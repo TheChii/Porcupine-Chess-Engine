@@ -6,34 +6,30 @@
 use crate::types::{piece_value, Board, Color, Move, Piece, Score, Value};
 
 pub mod hce;
-pub mod nnue;
 pub mod porcupine_nnue;
 
 // Re-export the evaluator for use in search
-pub use nnue::NnueEvaluator;
 pub use porcupine_nnue::PorcupineEvaluator;
 
 /// Evaluation methods available in the engine
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvalMethod {
     Hce,
-    Nnue,      // Default HalfKP
-    Porcupine, // LOD-NNUE v2.2 (Nano) HalfKP 22528->32->32->16->1
+    Porcupine, // 768→256→1 SCReLU (Chess768, dual perspective)
 }
 
 /// Evaluator wrapper that handles NNUE or HCE evaluation
 #[derive(Clone)]
 pub enum SearchEvaluator<'a> {
-    Nnue(NnueEvaluator<'a>),
     Porcupine(PorcupineEvaluator),
     Hce,
     Dummy999,
+    _Phantom(std::marker::PhantomData<&'a ()>), // To keep lifetime 'a
 }
 
 impl<'a> SearchEvaluator<'a> {
     pub fn new(
         _method: EvalMethod, // Ignored, kept for compatibility
-        _model: Option<&'a nnue::Model>, 
         _porcupine: Option<&porcupine_nnue::Model>, 
         _board: &Board
     ) -> Self {
@@ -49,44 +45,38 @@ impl<'a> SearchEvaluator<'a> {
         
         // 2. Pure HCE (Hand-Crafted Evaluation)
         //return Self::Hce;
-
-        // 3. Default HalfKP NNUE (with HCE endgame fallback)
-        // return if let Some(m) = _model { Self::Nnue(NnueEvaluator::new(m, _board)) } else { Self::Hce };
     }
 
     #[inline]
     pub fn evaluate(&mut self, ply: usize, board: &Board) -> Score {
         match self {
-            Self::Nnue(e) => {
-                // Default NNUE
-                e.evaluate(ply, board.turn())
-            }
             Self::Porcupine(e) => {
                 // Use Porcupine NNUE
                 e.evaluate(ply, board.turn())
             }
             Self::Hce => hce::evaluate(board),
             Self::Dummy999 => Score::cp(999),
+            Self::_Phantom(_) => Score::cp(0),
         }
     }
 
     #[inline]
     pub fn update_move(&mut self, ply: usize, board: &Board, m: Move) -> bool {
         match self {
-            Self::Nnue(e) => e.update_move(ply, board, m),
             Self::Porcupine(e) => e.update_move(ply, board, m),
             Self::Hce => true, // HCE is stateless
             Self::Dummy999 => true,
+            Self::_Phantom(_) => true,
         }
     }
 
     #[inline]
     pub fn refresh(&mut self, ply: usize, board: &Board) {
         match self {
-            Self::Nnue(e) => e.refresh(ply, board),
             Self::Porcupine(e) => e.refresh(ply, board),
             Self::Hce => (),
             Self::Dummy999 => (),
+            Self::_Phantom(_) => (),
         }
     }
 }

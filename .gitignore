@@ -8,6 +8,7 @@ viridithas_reference/
 stockfish-*
 *.pt
 *.bin
+!quantised.bin
 *.nnue
 __pycache__/
 venv/
