@@ -369,6 +369,7 @@ pub fn search<NT: NodeType>(
         let is_capture = m.is_capture();
         let is_promotion = m.is_promotion();
         let is_killer = killers[0] == Some(m) || killers[1] == Some(m);
+        let is_counter = counter_move == Some(m);
         let is_quiet = !is_capture && !is_promotion;
         let gives_check = new_board.in_check();
         let is_good_capture = is_capture && see::see_ge(board, m, 0);
@@ -393,6 +394,7 @@ pub fn search<NT: NodeType>(
             && !in_check
             && !gives_check
             && !is_killer
+            && !is_counter
             && !is_good_capture
         {
             // Logarithmic reduction formula (pre-computed)
@@ -430,6 +432,7 @@ pub fn search<NT: NodeType>(
             && !in_check
             && !gives_check
             && !is_killer
+            && !is_counter
             && move_idx > 0
         {
             // More aggressive pruning threshold: -2000 * depth
