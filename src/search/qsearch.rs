@@ -142,10 +142,11 @@ pub fn quiescence<NT: NodeType>(
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
         let t_eval = std::time::Instant::now();
-        let eval = eval::evaluate(board);
+        let raw_eval = eval::evaluate(board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
-        eval
+        let corr = searcher.correction.get(board.turn(), board.pawn_hash()) / 32;
+        raw_eval + Score::cp(corr)
     };
 
     // Beta cutoff: position is already too good (only if not in check)
