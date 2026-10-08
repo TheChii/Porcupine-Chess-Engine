@@ -214,7 +214,8 @@ pub fn search<NT: NodeType>(
         let raw_eval = eval::evaluate(board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
-        static_eval = Some(raw_eval);
+        let corr = searcher.correction.get(board.turn(), board.pawn_hash()) / 32;
+        static_eval = Some(raw_eval + Score::cp(corr));
     }
 
     // === Reverse Futility Pruning (RFP) ===
@@ -617,6 +618,20 @@ pub fn search<NT: NodeType>(
             .shared
             .tt
             .store(hash, best_move, best_score.to_tt(ply.raw()), depth, bound);
+
+        // Update pawn correction history on exact nodes (where best_score is an accurate minimax value)
+        if bound == BoundType::Exact
+            && !in_check
+            && depth.raw() >= 2
+            && best_score.raw().abs() < (SCORE_MATE - 1000)
+        {
+            if let Some(se) = static_eval {
+                let diff = (best_score.raw() - se.raw()).clamp(-256, 256);
+                searcher
+                    .correction
+                    .update(board.turn(), board.pawn_hash(), depth.raw(), diff);
+            }
+        }
     }
 
     SearchResult {

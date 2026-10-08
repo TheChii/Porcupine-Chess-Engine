@@ -357,6 +357,7 @@ impl Searcher {
 
         // Age history scores (decay old data, keep some history)
         self.history.age();
+        self.correction.age();
 
         // Configure time management
         self.time_manager = TimeManager::from_limits(&limits, self.board.turn(), self.board.fullmove_number());
