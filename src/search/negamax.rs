@@ -68,11 +68,19 @@ pub fn search<NT: NodeType>(
 
     let hash = board.hash();
 
+    // === 50-move rule check ===
+    if !NT::ROOT && board.halfmove_clock() >= 100 {
+        return SearchResult {
+            best_move: None,
+            score: Score::draw(),
+        };
+    }
+
     // === Repetition Detection with Contempt ===
-    // Check for draw by repetition (position seen before in game history)
+    // Check for draw by repetition (position seen before in game history or search path)
     // Use contempt: avoid draws when winning, seek draws when losing
     // Skip at root node (ply == 0)
-    if !NT::ROOT && searcher.is_repetition(hash) {
+    if !NT::ROOT && searcher.is_repetition(hash, board.halfmove_clock()) {
         // Contempt factor: small penalty/bonus for draws based on expected score
         // If alpha > 0 (we expect to be winning), penalize draws to avoid them
         // If beta < 0 (we expect to be losing), reward draws to seek them
@@ -312,8 +320,11 @@ pub fn search<NT: NodeType>(
         }
     }
 
-    // Check for checkmate or stalemate early?
-    // We can't anymore because we defer move generation! Wait, no, we generate moves upfront!
+    // Quiescence search at depth 0
+    if adjusted_depth.is_qs() {
+        return qsearch::quiescence::<NT>(searcher, board, ply, 0, alpha, beta);
+    }
+
     #[cfg(debug_assertions)]
     let t_gen = std::time::Instant::now();
     let moves = board.generate_moves();
@@ -331,11 +342,6 @@ pub fn search<NT: NodeType>(
             best_move: None,
             score,
         };
-    }
-
-    // Quiescence search at depth 0
-    if adjusted_depth.is_qs() {
-        return qsearch::quiescence::<NT>(searcher, board, ply, 0, alpha, beta);
     }
 
     // Get killers for this ply
@@ -507,6 +513,7 @@ pub fn search<NT: NodeType>(
         }
 
         // === Principal Variation Search (PVS) ===
+        searcher.position_history.push(hash);
         let mut result;
         let mut score;
 
@@ -578,6 +585,8 @@ pub fn search<NT: NodeType>(
                 score = -result.score;
             }
         }
+
+        searcher.position_history.pop();
 
         if searcher.should_stop() {
             break;

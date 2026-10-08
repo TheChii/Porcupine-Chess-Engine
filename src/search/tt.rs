@@ -110,8 +110,12 @@ unsafe impl Sync for TranspositionTable {}
 
 impl TranspositionTable {
     pub fn new(mb: usize) -> Self {
-        let n = ((mb * 1024 * 1024) / 16).next_power_of_two() / 2;
-        let n = n.max(1024);
+        let max_entries = (mb * 1024 * 1024) / 16;
+        let n = if max_entries < 1024 {
+            1024
+        } else {
+            1 << (usize::BITS - 1 - max_entries.leading_zeros())
+        };
         let mut entries = Vec::with_capacity(n);
         for _ in 0..n { entries.push(TTBucket::default()); }
         Self { entries, generation: AtomicU8::new(0), size_mb: mb }

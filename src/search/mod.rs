@@ -216,11 +216,19 @@ impl Searcher {
     }
 
     /// Check if position has repeated (for draw detection)
-    /// Check if position has repeated (for draw detection)
-    pub fn is_repetition(&self, hash: u64) -> bool {
-        // Iterate backwards to find recent repetitions (more likely)
-        // using any() to stop at first match
-        self.position_history.iter().rev().any(|&h| h == hash)
+    pub fn is_repetition(&self, hash: u64, halfmove_clock: u8) -> bool {
+        let len = self.position_history.len();
+        if len < 2 {
+            return false;
+        }
+        let max_lookback = (halfmove_clock as usize).min(len);
+        let start = len.saturating_sub(max_lookback);
+        for i in (start..len - 1).rev().step_by(2) {
+            if self.position_history[i] == hash {
+                return true;
+            }
+        }
+        false
     }
 
     /// Get current statistics
@@ -497,8 +505,19 @@ impl Searcher {
             if !self.is_helper && !self.should_stop() {
                 self.stats.print_profiling();
                 self.stats.time_search = self.time_manager.elapsed() * 1_000_000;
-                let pv_str: String = self
-                    .pv()
+                let mut pv_moves = Vec::new();
+                let mut cur_board = self.board;
+                let mut hist = self.position_history.clone();
+                for &m in self.pv() {
+                    pv_moves.push(m);
+                    cur_board = cur_board.make_move_new(m);
+                    let h = cur_board.hash();
+                    if hist.contains(&h) || cur_board.halfmove_clock() >= 100 {
+                        break;
+                    }
+                    hist.push(h);
+                }
+                let pv_str = pv_moves
                     .iter()
                     .map(|m| m.to_string())
                     .collect::<Vec<_>>()

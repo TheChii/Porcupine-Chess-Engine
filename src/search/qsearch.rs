@@ -63,6 +63,14 @@ pub fn quiescence<NT: NodeType>(
         };
     }
 
+    // 50-move rule check
+    if board.halfmove_clock() >= 100 {
+        return SearchResult {
+            best_move: None,
+            score: Score::draw(),
+        };
+    }
+
     searcher.inc_nodes();
     searcher.inc_qnodes();
     searcher.update_seldepth(ply);

@@ -80,17 +80,20 @@ pub fn score_move(
     score
 }
 
+use std::mem::MaybeUninit;
 use crate::types::MoveList;
 
 pub struct MovePicker<'a> {
     board: &'a Board,
     moves: MoveList,
-    scores: [i32; 256],
+    scores: [MaybeUninit<i32>; 256],
+    num_tactical: usize,
+    cur_tactical: usize,
+    cur_quiet: usize,
     tt_move: Option<Move>,
     killers: [Option<Move>; 2],
     counter_move: Option<Move>,
     color: Color,
-
     phase: i32,
     yielded_killers: usize,
 }
@@ -98,24 +101,37 @@ pub struct MovePicker<'a> {
 impl<'a> MovePicker<'a> {
     pub fn new(
         board: &'a Board,
-        moves: MoveList,
+        mut moves: MoveList,
         tt_move: Option<Move>,
         killers: [Option<Move>; 2],
         counter_move: Option<Move>,
         color: Color,
     ) -> Self {
-        // Verify TT move is legal by checking if it's in the generated move list
         let valid_tt = if let Some(tt) = tt_move {
-            moves.iter().any(|m| m == tt)
+            moves.contains(tt)
         } else {
             false
         };
         let validated_tt = if valid_tt { tt_move } else { None };
 
+        // Partition moves into tactical (captures + promotions) and quiets
+        let num_moves = moves.len();
+        let slice = moves.as_slice_mut();
+        let mut num_tactical = 0;
+        for i in 0..num_moves {
+            if slice[i].is_capture() || slice[i].is_promotion() {
+                slice.swap(i, num_tactical);
+                num_tactical += 1;
+            }
+        }
+
         Self {
             board,
             moves,
-            scores: [0; 256],
+            scores: [MaybeUninit::uninit(); 256],
+            num_tactical,
+            cur_tactical: 0,
+            cur_quiet: num_tactical,
             tt_move: validated_tt,
             killers,
             counter_move,
@@ -129,21 +145,20 @@ impl<'a> MovePicker<'a> {
         loop {
             match self.phase {
                 0 => {
-                    // Phase 1: TT Move
+                    // Phase 0: TT Move
                     self.phase = 1;
                     if let Some(tt) = self.tt_move {
-                        if let Some(idx) = self.moves.iter().position(|m| m == tt) {
-                            self.scores[idx] = i32::MIN; // Mark as yielded
-                        }
                         return Some(tt);
                     }
                 }
                 1 => {
-                    // Score captures
-                    for i in 0..self.moves.len() {
+                    // Phase 1: Score tactical moves
+                    for i in 0..self.num_tactical {
                         let m = self.moves.as_slice()[i];
-                        if self.scores[i] != i32::MIN && (m.is_capture() || m.is_promotion()) {
-                            self.scores[i] = score_move(
+                        if Some(m) == self.tt_move {
+                            self.scores[i].write(i32::MIN);
+                        } else {
+                            let s = score_move(
                                 self.board,
                                 m,
                                 None,
@@ -152,31 +167,38 @@ impl<'a> MovePicker<'a> {
                                 history,
                                 self.color,
                             );
+                            self.scores[i].write(s);
                         }
                     }
                     self.phase = 2;
                 }
                 2 => {
-                    // Phase 2: Yield captures iteratively
-                    let mut best_score = -i32::MAX;
-                    let mut best_idx = None;
+                    // Phase 2: Yield tactical moves via swap-selection
+                    while self.cur_tactical < self.num_tactical {
+                        let mut best_score = unsafe { self.scores[self.cur_tactical].assume_init() };
+                        let mut best_idx = self.cur_tactical;
 
-                    for i in 0..self.moves.len() {
-                        let m = self.moves.as_slice()[i];
-                        if self.scores[i] != i32::MIN && (m.is_capture() || m.is_promotion()) {
-                            if self.scores[i] > best_score {
-                                best_score = self.scores[i];
-                                best_idx = Some(i);
+                        for i in (self.cur_tactical + 1)..self.num_tactical {
+                            let sc = unsafe { self.scores[i].assume_init() };
+                            if sc > best_score {
+                                best_score = sc;
+                                best_idx = i;
                             }
                         }
-                    }
 
-                    if let Some(idx) = best_idx {
-                        self.scores[idx] = i32::MIN; // Mark as yielded
-                        return Some(self.moves.as_slice()[idx]);
-                    } else {
-                        self.phase = 3;
+                        if best_idx != self.cur_tactical {
+                            self.moves.as_slice_mut().swap(self.cur_tactical, best_idx);
+                            self.scores.swap(self.cur_tactical, best_idx);
+                        }
+
+                        let m = self.moves.as_slice()[self.cur_tactical];
+                        self.cur_tactical += 1;
+
+                        if best_score != i32::MIN {
+                            return Some(m);
+                        }
                     }
+                    self.phase = 3;
                 }
                 3 => {
                     // Phase 3: Yield killers
@@ -186,13 +208,13 @@ impl<'a> MovePicker<'a> {
 
                         if let Some(killer) = k {
                             if Some(killer) != self.tt_move {
-                                if let Some(idx) = self.moves.iter().position(|m| {
-                                    m == killer && !m.is_capture() && !m.is_promotion()
-                                }) {
-                                    if self.scores[idx] != i32::MIN {
-                                        self.scores[idx] = i32::MIN; // Mark as yielded
-                                        return Some(killer);
-                                    }
+                                if let Some(pos) = (self.cur_quiet..self.moves.len())
+                                    .find(|&i| self.moves.as_slice()[i] == killer)
+                                {
+                                    self.moves.as_slice_mut().swap(self.cur_quiet, pos);
+                                    let m = self.moves.as_slice()[self.cur_quiet];
+                                    self.cur_quiet += 1;
+                                    return Some(m);
                                 }
                             }
                         }
@@ -200,11 +222,14 @@ impl<'a> MovePicker<'a> {
                     self.phase = 4;
                 }
                 4 => {
-                    // Score quiets
-                    for i in 0..self.moves.len() {
+                    // Phase 4: Score remaining quiet moves
+                    let total_moves = self.moves.len();
+                    for i in self.cur_quiet..total_moves {
                         let m = self.moves.as_slice()[i];
-                        if self.scores[i] != i32::MIN && !m.is_capture() && !m.is_promotion() {
-                            self.scores[i] = score_move(
+                        if Some(m) == self.tt_move {
+                            self.scores[i].write(i32::MIN);
+                        } else {
+                            let s = score_move(
                                 self.board,
                                 m,
                                 None,
@@ -213,31 +238,39 @@ impl<'a> MovePicker<'a> {
                                 history,
                                 self.color,
                             );
+                            self.scores[i].write(s);
                         }
                     }
                     self.phase = 5;
                 }
                 5 => {
-                    // Phase 4: Yield quiets iteratively
-                    let mut best_score = -i32::MAX;
-                    let mut best_idx = None;
+                    // Phase 5: Yield quiet moves via swap-selection
+                    let total_moves = self.moves.len();
+                    while self.cur_quiet < total_moves {
+                        let mut best_score = unsafe { self.scores[self.cur_quiet].assume_init() };
+                        let mut best_idx = self.cur_quiet;
 
-                    for i in 0..self.moves.len() {
-                        let m = self.moves.as_slice()[i];
-                        if self.scores[i] != i32::MIN && !m.is_capture() && !m.is_promotion() {
-                            if self.scores[i] > best_score {
-                                best_score = self.scores[i];
-                                best_idx = Some(i);
+                        for i in (self.cur_quiet + 1)..total_moves {
+                            let sc = unsafe { self.scores[i].assume_init() };
+                            if sc > best_score {
+                                best_score = sc;
+                                best_idx = i;
                             }
                         }
-                    }
 
-                    if let Some(idx) = best_idx {
-                        self.scores[idx] = i32::MIN; // Mark as yielded
-                        return Some(self.moves.as_slice()[idx]);
-                    } else {
-                        return None; // Done
+                        if best_idx != self.cur_quiet {
+                            self.moves.as_slice_mut().swap(self.cur_quiet, best_idx);
+                            self.scores.swap(self.cur_quiet, best_idx);
+                        }
+
+                        let m = self.moves.as_slice()[self.cur_quiet];
+                        self.cur_quiet += 1;
+
+                        if best_score != i32::MIN {
+                            return Some(m);
+                        }
                     }
+                    return None;
                 }
                 _ => return None,
             }
