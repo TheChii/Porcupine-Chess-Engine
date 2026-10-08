@@ -222,29 +222,40 @@ impl<'a> MovePicker<'a> {
                     self.phase = 4;
                 }
                 4 => {
-                    // Phase 4: Score remaining quiet moves
+                    // Phase 4: Yield counter move
+                    self.phase = 5;
+                    if let Some(cm) = self.counter_move {
+                        if Some(cm) != self.tt_move
+                            && self.killers[0] != Some(cm)
+                            && self.killers[1] != Some(cm)
+                        {
+                            if let Some(pos) = (self.cur_quiet..self.moves.len())
+                                .find(|&i| self.moves.as_slice()[i] == cm)
+                            {
+                                self.moves.as_slice_mut().swap(self.cur_quiet, pos);
+                                let m = self.moves.as_slice()[self.cur_quiet];
+                                self.cur_quiet += 1;
+                                return Some(m);
+                            }
+                        }
+                    }
+                }
+                5 => {
+                    // Phase 5: Score remaining quiet moves directly using history heuristic
                     let total_moves = self.moves.len();
                     for i in self.cur_quiet..total_moves {
                         let m = self.moves.as_slice()[i];
                         if Some(m) == self.tt_move {
                             self.scores[i].write(i32::MIN);
                         } else {
-                            let s = score_move(
-                                self.board,
-                                m,
-                                None,
-                                [None, None],
-                                self.counter_move,
-                                history,
-                                self.color,
-                            );
+                            let s = history.get(self.color, m);
                             self.scores[i].write(s);
                         }
                     }
-                    self.phase = 5;
+                    self.phase = 6;
                 }
-                5 => {
-                    // Phase 5: Yield quiet moves via swap-selection
+                6 => {
+                    // Phase 6: Yield quiet moves via swap-selection
                     let total_moves = self.moves.len();
                     while self.cur_quiet < total_moves {
                         let mut best_score = unsafe { self.scores[self.cur_quiet].assume_init() };
