@@ -146,10 +146,17 @@ impl TranspositionTable {
         let ed = bucket.data.load(Ordering::Relaxed);
         let ek = bucket.hash_key.load(Ordering::Relaxed);
         let gen = self.generation();
-        let e = if (ek ^ ed) == h { TTEntry::from_data(ed) } else { TTEntry::default() };
+        let is_same_pos = (ek ^ ed) == h;
+        let existing = TTEntry::from_data(ed);
 
-        if e.is_empty() || (ek ^ ed) != h || e.generation() != gen || d.raw() >= e.depth.into() {
-            let m = m.or_else(|| e.best_move());
+        let replace = existing.is_empty()
+            || existing.generation() != gen
+            || d.raw() >= existing.depth.into()
+            || (is_same_pos && b == BoundType::Exact && existing.bound() != BoundType::Exact)
+            || (is_same_pos && m.is_some() && existing.best_move().is_none());
+
+        if replace {
+            let m = m.or_else(|| if is_same_pos { existing.best_move() } else { None });
             let ne = TTEntry::new(m, s, d, b, gen);
             let nd = ne.to_data();
             bucket.data.store(nd, Ordering::Relaxed);
