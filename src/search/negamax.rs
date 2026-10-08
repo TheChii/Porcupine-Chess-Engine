@@ -260,9 +260,14 @@ pub fn search<NT: NodeType>(
     }
 
     // === Null Move Pruning ===
-    // Skip if: in check, depth too low, PV node, only king+pawns, or static eval < beta
+    // Skip if: in check, depth too low, PV node, mating scores, only king+pawns, or static eval < beta
     // Note: we don't do NMP on PV nodes or at root
-    if !NT::PV && !in_check && adjusted_depth.raw() >= 3 && static_eval.unwrap() >= beta {
+    if !NT::PV
+        && !in_check
+        && adjusted_depth.raw() >= 3
+        && beta.raw().abs() < (SCORE_MATE - 1000)
+        && static_eval.unwrap() >= beta
+    {
         // Don't do null move in pure pawn endgames (zugzwang risk)
         let dominated_by_pawns = (board.piece_bb(Piece::Knight)
             | board.piece_bb(Piece::Bishop)
@@ -271,8 +276,9 @@ pub fn search<NT: NodeType>(
         .is_empty();
 
         if !dominated_by_pawns {
-            // Reduction: Base 3 + scaled by depth
-            let r = 3 + adjusted_depth.raw() / 6;
+            // Reduction: Base 3 + scaled by depth and eval margin
+            let eval_margin = (static_eval.unwrap().raw() - beta.raw()).max(0);
+            let r = 3 + adjusted_depth.raw() / 6 + (eval_margin / 200).min(3);
 
             // Create a null move board (pass the turn)
             let null_board = board.make_null_move();
