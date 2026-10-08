@@ -422,14 +422,14 @@ impl Searcher {
                 }
             }
 
-            // Aspiration window: use previous score +/- delta after depth 1
+            // Aspiration window: use previous score +/- delta after depth 4
             let mut delta = INITIAL_WINDOW;
-            let mut alpha = if depth > 1 && !best_score.is_mate() {
+            let mut alpha = if depth >= 5 && !best_score.is_mate() {
                 best_score - Score::cp(delta)
             } else {
                 Score::neg_infinity()
             };
-            let mut beta = if depth > 1 && !best_score.is_mate() {
+            let mut beta = if depth >= 5 && !best_score.is_mate() {
                 best_score + Score::cp(delta)
             } else {
                 Score::infinity()
