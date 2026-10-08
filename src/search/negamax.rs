@@ -196,17 +196,17 @@ pub fn search<NT: NodeType>(
 
     let in_check = board.in_check();
 
+    // Check extension: extend search by 1 ply if in check to ensure king evasions are found
+    let check_ext = if in_check && ply.raw() > 0 { 1 } else { 0 };
+
     // === Internal Iterative Reduction (IIR) ===
     // If we have no TT move at a high depth, reduce depth by 1 ply instead of doing a full IID search.
-    let iir_reduction = if tt_move.is_none() && depth.raw() >= 4 { 1 } else { 0 };
-    let adjusted_depth = Depth::new((depth.raw() - iir_reduction).max(0));
+    let iir_reduction = if tt_move.is_none() && depth.raw() >= 4 && !in_check { 1 } else { 0 };
+    let adjusted_depth = Depth::new((depth.raw() + check_ext - iir_reduction).max(0));
 
-    // === Reverse Futility Pruning (RFP) ===
-    // If we are way ahead, we can prune without searching
-    // Distinct from standard Futility Pruning which prunes *moves*
+    // Compute static evaluation once for all non-check nodes
     let mut static_eval = None;
-
-    if !in_check && adjusted_depth.raw() <= 8 {
+    if !in_check {
         #[cfg(debug_assertions)]
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
@@ -214,10 +214,14 @@ pub fn search<NT: NodeType>(
         let raw_eval = eval::evaluate(board);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
+        static_eval = Some(raw_eval);
+    }
 
-        let eval = raw_eval;
-        static_eval = Some(eval);
-
+    // === Reverse Futility Pruning (RFP) ===
+    // If we are way ahead, we can prune without searching
+    // Distinct from standard Futility Pruning which prunes *moves*
+    if !in_check && adjusted_depth.raw() <= 8 {
+        let eval = static_eval.unwrap();
         // RFP Margin: 60 + 60 * depth
         let margin = Score::cp(60 + 60 * adjusted_depth.raw());
 
@@ -225,7 +229,7 @@ pub fn search<NT: NodeType>(
             return SearchResult {
                 best_move: None,
                 score: beta, // Fail high directly
-                };
+            };
         }
     }
 
@@ -255,9 +259,9 @@ pub fn search<NT: NodeType>(
     }
 
     // === Null Move Pruning ===
-    // Skip if: in check, depth too low, PV node, or only king+pawns
+    // Skip if: in check, depth too low, PV node, only king+pawns, or static eval < beta
     // Note: we don't do NMP on PV nodes or at root
-    if !NT::PV && !in_check && adjusted_depth.raw() >= 3 {
+    if !NT::PV && !in_check && adjusted_depth.raw() >= 3 && static_eval.unwrap() >= beta {
         // Don't do null move in pure pawn endgames (zugzwang risk)
         let dominated_by_pawns = (board.piece_bb(Piece::Knight)
             | board.piece_bb(Piece::Bishop)
@@ -328,19 +332,6 @@ pub fn search<NT: NodeType>(
     // Create MovePicker to lazily score and yield moves
     let mut move_picker =
         ordering::MovePicker::new(board, moves, tt_move, killers, counter_move, color);
-
-    // Static eval is already computed for RFP if depth <= 7
-    // If not (e.g. was in check check or deeper), compute it now if needed for Razoring/Futility
-    if static_eval.is_none() && depth.raw() <= 3 && !in_check {
-        #[cfg(debug_assertions)]
-        searcher.inc_eval_calls();
-        #[cfg(debug_assertions)]
-        let t_eval = std::time::Instant::now();
-        let val = eval::evaluate(board);
-        #[cfg(debug_assertions)]
-        searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
-        static_eval = Some(val);
-    }
 
     // Razoring - only on non-PV nodes
     if !NT::PV && depth.raw() <= 3 && !in_check {
@@ -537,7 +528,7 @@ pub fn search<NT: NodeType>(
             result = search::<OffPV>(
                 searcher,
                 &new_board,
-                Depth::new((depth.raw() - 1).max(0)),
+                Depth::new((adjusted_depth.raw() - 1).max(0)),
                 ply.next(),
                 -alpha - Score::cp(1),
                 -alpha,
@@ -550,7 +541,7 @@ pub fn search<NT: NodeType>(
                 result = search::<NT::Next>(
                     searcher,
                     &new_board,
-                    Depth::new((depth.raw() - 1).max(0)),
+                    Depth::new((adjusted_depth.raw() - 1).max(0)),
                     ply.next(),
                     -beta,
                     -alpha,
