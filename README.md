@@ -31,6 +31,3 @@ The executable will be located at target/release/porcupine.
 cargo test --release
 ```
 
-## License
-
-MIT License.
