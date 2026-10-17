@@ -7,3 +7,21 @@
 viridithas_reference/
 stockfish-*
 porcupine-baseline*
+
+# Training data and checkpoints (exceed GitHub file size limits)
+data/
+*.pt
+__pycache__/
+training/__pycache__/
+*.parquet
+*.csv
+
+# Intermediate experimental models (keep default.nnue)
+model_*.nnue
+temp_*.nnue
+default_epoch02.nnue
+
+# Match logs
+match_*.pgn
+
+

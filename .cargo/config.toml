@@ -1,4 +1,4 @@
-﻿[build]
+[build]
 rustflags = ["-C", "target-cpu=native"]
 
 # Windows needs larger stack for NNUE weights (~400KB arrays)

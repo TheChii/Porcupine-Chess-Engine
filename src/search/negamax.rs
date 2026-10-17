@@ -12,8 +12,7 @@
 use super::node_types::{NodeType, OffPV};
 use super::tt::BoundType;
 use super::{ordering, qsearch, see, Searcher};
-use crate::eval;
-use crate::types::{Board, Depth, Move, Piece, Ply, Score, SCORE_MATE};
+use crate::types::{Board, Color, Depth, Move, Piece, Ply, Score, SCORE_MATE};
 
 use std::sync::OnceLock;
 
@@ -63,7 +62,7 @@ pub fn search<NT: NodeType>(
     searcher.inc_nodes();
     searcher.update_seldepth(ply);
 
-    let p = ply.raw() as usize;
+    let p = (ply.raw() as usize).min(127);
     searcher.pv_length[p] = 0;
 
     let hash = board.hash();
@@ -211,7 +210,7 @@ pub fn search<NT: NodeType>(
         searcher.inc_eval_calls();
         #[cfg(debug_assertions)]
         let t_eval = std::time::Instant::now();
-        let raw_eval = eval::evaluate(board);
+        let raw_eval = searcher.evaluate_position(board, p);
         #[cfg(debug_assertions)]
         searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
         let corr = searcher.correction.get(board.turn(), board.pawn_hash()) / 32;
@@ -282,6 +281,8 @@ pub fn search<NT: NodeType>(
 
             // Create a null move board (pass the turn)
             let null_board = board.make_null_move();
+            let next_p = (p + 1).min(127);
+            searcher.accumulators[next_p] = searcher.accumulators[p];
 
             let null_result = search::<OffPV>(
                 searcher,
@@ -380,10 +381,22 @@ pub fn search<NT: NodeType>(
         let gives_check = new_board.in_check();
         let is_good_capture = is_capture && see::see_ge(board, m, 0);
 
+        // Advanced passed pawn pushes must never be pruned or reduced
+        let piece = board.piece_at(m.from()).map(|(p, _)| p);
+        let is_passed_pawn_push = piece == Some(Piece::Pawn) && {
+            let to_sq = m.to();
+            let rank = to_sq.rank().index();
+            let is_advanced = match color {
+                Color::White => rank >= 4,
+                Color::Black => rank <= 3,
+            };
+            is_advanced && crate::eval::hce::is_passed_pawn(board, to_sq, color)
+        };
+
         // === Late Move Pruning (LMP) ===
         // If we have searched enough quiet moves at low depth, stop searching the rest.
         // This relies on move ordering to put good moves early.
-        if is_quiet && adjusted_depth.raw() <= 7 && !in_check {
+        if is_quiet && !is_passed_pawn_push && adjusted_depth.raw() <= 7 && !in_check {
             // Formula: LMS = 3 + depth^2 (e.g., d1=4, d2=7, d3=12...)
             let lmp_count = (3 + adjusted_depth.raw() * adjusted_depth.raw()) as usize;
             if quiets_count > lmp_count {
@@ -402,6 +415,7 @@ pub fn search<NT: NodeType>(
             && !is_killer
             && !is_counter
             && !is_good_capture
+            && !is_passed_pawn_push
         {
             // Logarithmic reduction formula (pre-computed)
             let mut reduction = get_lmr(adjusted_depth.raw(), move_idx);
@@ -411,8 +425,10 @@ pub fn search<NT: NodeType>(
                 reduction = reduction.saturating_sub(1);
             }
 
-            // Reduce more for quiet moves
+            // Reduce more for quiet moves and bad captures
             if is_quiet {
+                reduction += 1;
+            } else if !is_good_capture {
                 reduction += 1;
             }
 
@@ -439,6 +455,7 @@ pub fn search<NT: NodeType>(
             && !gives_check
             && !is_killer
             && !is_counter
+            && !is_passed_pawn_push
             && move_idx > 0
         {
             // More aggressive pruning threshold: -2000 * depth
@@ -448,13 +465,19 @@ pub fn search<NT: NodeType>(
             }
         }
 
-        // === SEE Pruning for Quiet Moves ===
-        // Prune quiet moves that are obvious blunders (e.g. putting a piece en prise)
-        if adjusted_depth.raw() <= 4 && is_quiet && !in_check && !gives_check && move_idx > 0 {
-            // If move loses material (at least 50cp), prune it
-            // This uses SEE to see if the move is "safe"
-            if !see::see_ge(board, m, -50) {
-                continue;
+        // === SEE Pruning for Quiet Moves and Bad Captures ===
+        // Prune moves that are obvious blunders (e.g. putting a piece en prise or bad captures)
+        if adjusted_depth.raw() <= 4 && !in_check && !gives_check && !is_passed_pawn_push && move_idx > 0 {
+            if is_quiet {
+                // If quiet move loses material (at least 50cp), prune it
+                if !see::see_ge(board, m, -50) {
+                    continue;
+                }
+            } else if !is_good_capture {
+                // Prune captures that lose material beyond margin at shallow depth
+                if !see::see_ge(board, m, -100 * adjusted_depth.raw()) {
+                    continue;
+                }
             }
         }
 
@@ -462,7 +485,7 @@ pub fn search<NT: NodeType>(
         // At shallow depths, skip quiet moves if eval + margin is below alpha
         if adjusted_depth.raw() <= 5 {
             if let Some(se) = static_eval {
-                if is_quiet && !gives_check && move_idx > 0 {
+                if is_quiet && !gives_check && !is_passed_pawn_push && move_idx > 0 {
                     // Margin: 150 * depth
                     let margin = 150 * adjusted_depth.raw();
                     if se.raw() + margin < alpha.raw() {
@@ -489,6 +512,21 @@ pub fn search<NT: NodeType>(
 
         // === Principal Variation Search (PVS) ===
         searcher.position_history.push(hash);
+
+        let next_p = (p + 1).min(127);
+        if let Some(ref model) = searcher.nnue_model {
+            let psqt = model.psqt_weights.as_deref();
+            searcher.accumulators[next_p] = searcher.accumulators[p].update_move(
+                board,
+                &new_board,
+                m,
+                &model.feature_biases,
+                &model.feature_weights,
+                &model.psqt_biases,
+                psqt,
+            );
+        }
+
         let mut result;
         let mut score;
 

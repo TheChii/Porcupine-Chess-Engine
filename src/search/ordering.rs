@@ -186,6 +186,11 @@ impl<'a> MovePicker<'a> {
                             }
                         }
 
+                        // Defer bad captures (SEE < 0) to Phase 7
+                        if best_score < 0 {
+                            break;
+                        }
+
                         if best_idx != self.cur_tactical {
                             self.moves.as_slice_mut().swap(self.cur_tactical, best_idx);
                             self.scores.swap(self.cur_tactical, best_idx);
@@ -276,6 +281,34 @@ impl<'a> MovePicker<'a> {
 
                         let m = self.moves.as_slice()[self.cur_quiet];
                         self.cur_quiet += 1;
+
+                        if best_score != i32::MIN {
+                            return Some(m);
+                        }
+                    }
+                    self.phase = 7;
+                }
+                7 => {
+                    // Phase 7: Yield remaining bad tactical moves (SEE < 0)
+                    while self.cur_tactical < self.num_tactical {
+                        let mut best_score = unsafe { self.scores[self.cur_tactical].assume_init() };
+                        let mut best_idx = self.cur_tactical;
+
+                        for i in (self.cur_tactical + 1)..self.num_tactical {
+                            let sc = unsafe { self.scores[i].assume_init() };
+                            if sc > best_score {
+                                best_score = sc;
+                                best_idx = i;
+                            }
+                        }
+
+                        if best_idx != self.cur_tactical {
+                            self.moves.as_slice_mut().swap(self.cur_tactical, best_idx);
+                            self.scores.swap(self.cur_tactical, best_idx);
+                        }
+
+                        let m = self.moves.as_slice()[self.cur_tactical];
+                        self.cur_tactical += 1;
 
                         if best_score != i32::MIN {
                             return Some(m);

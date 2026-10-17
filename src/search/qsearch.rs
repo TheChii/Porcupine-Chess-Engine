@@ -12,7 +12,6 @@ use super::node_types::NodeType;
 use super::see::is_good_capture_with_victim;
 use super::tt::BoundType;
 use super::{ordering, Searcher};
-use crate::eval;
 use crate::types::{Board, Depth, Piece, Ply, Score};
 
 /// Piece values for delta pruning (centipawns)
@@ -54,9 +53,15 @@ pub fn quiescence<NT: NodeType>(
     mut alpha: Score,
     mut beta: Score,
 ) -> SearchResult {
+    let p = (ply.raw() as usize).min(127);
+
     // Prevent array bounds panics in extreme checking sequences
     if ply.raw() >= crate::types::MAX_PLY - 1 {
-        let stand_pat = if board.in_check() { Score::draw() } else { eval::evaluate(board) };
+        let stand_pat = if board.in_check() {
+            Score::draw()
+        } else {
+            crate::eval::hce::evaluate(board)
+        };
         return SearchResult {
             best_move: None,
             score: stand_pat,
@@ -75,7 +80,6 @@ pub fn quiescence<NT: NodeType>(
     searcher.inc_qnodes();
     searcher.update_seldepth(ply);
 
-    let p = ply.raw() as usize;
     searcher.pv_length[p] = 0;
 
     let hash = board.hash();
@@ -134,17 +138,32 @@ pub fn quiescence<NT: NodeType>(
 
     let in_check = board.in_check();
 
+    // === Fast PSQT / Material Stand-Pat Check (~4 ns) ===
+    if !in_check {
+        let fast_score = searcher.fast_eval(board, p);
+        // Hopeless leaf: even capturing a queen cannot bring score close to alpha
+        if fast_score.raw() + DELTA_MARGIN < alpha.raw() {
+            return SearchResult {
+                best_move: None,
+                score: alpha,
+            };
+        }
+        // Position is already crushing: fast score is well above beta
+        if fast_score.raw() - 250 >= beta.raw() {
+            return SearchResult {
+                best_move: None,
+                score: beta,
+            };
+        }
+    }
+
     // Stand-pat evaluation using incremental evaluator
     let stand_pat = if in_check {
         Score::neg_infinity()
     } else {
         #[cfg(debug_assertions)]
         searcher.inc_eval_calls();
-        #[cfg(debug_assertions)]
-        let t_eval = std::time::Instant::now();
-        let raw_eval = eval::evaluate(board);
-        #[cfg(debug_assertions)]
-        searcher.add_eval_time(t_eval.elapsed().as_nanos() as u64);
+        let raw_eval = crate::eval::hce::evaluate(board);
         let corr = searcher.correction.get(board.turn(), board.pawn_hash()) / 32;
         raw_eval + Score::cp(corr)
     };
@@ -244,6 +263,20 @@ pub fn quiescence<NT: NodeType>(
         }
 
         let new_board = board.make_move_new(m);
+
+        let next_p = (p + 1).min(127);
+        if let Some(ref model) = searcher.nnue_model {
+            let psqt = model.psqt_weights.as_deref();
+            searcher.accumulators[next_p] = searcher.accumulators[p.min(127)].update_move(
+                board,
+                &new_board,
+                m,
+                &model.feature_biases,
+                &model.feature_weights,
+                &model.psqt_biases,
+                psqt,
+            );
+        }
 
         let result = quiescence::<NT::Next>(
             searcher,

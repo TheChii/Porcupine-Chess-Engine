@@ -41,8 +41,18 @@ impl UciHandler {
     pub fn new() -> Self {
         let searcher = Searcher::new();
 
-        // Using HCE instead of NNUE
-        eprintln!("info string Using HCE evaluation");
+        if std::path::Path::new("default.nnue").exists() {
+            match crate::nnue::load_global_model("default.nnue") {
+                Ok(()) => {
+                    eprintln!("info string Using FH-NNUE evaluation (model: default.nnue)");
+                }
+                Err(e) => {
+                    eprintln!("info string Failed to load default.nnue: {}, using HCE", e);
+                }
+            }
+        } else {
+            eprintln!("info string Using HCE evaluation");
+        }
 
         let shared = searcher.shared.clone();
 
@@ -127,6 +137,8 @@ impl UciHandler {
         self.send("option name MoveOverhead type spin default 10 min 0 max 5000");
         self.send("option name OwnBook type check default false");
         self.send("option name BookPath type string default <empty>");
+        self.send("option name UseNNUE type check default true");
+        self.send("option name EvalFile type string default default.nnue");
 
         self.send("uciok");
     }
@@ -230,6 +242,32 @@ impl UciHandler {
                     } else {
                         if self.debug {
                             eprintln!("BookPath set but OwnBook is disabled, not loading book");
+                        }
+                    }
+                }
+            }
+            "usennue" => {
+                if let Some(v) = value {
+                    let enabled = v.to_lowercase() == "true";
+                    crate::nnue::set_use_nnue(enabled);
+                    self.shared.eval_cache.clear();
+                    if self.debug {
+                        eprintln!("UseNNUE set to: {}", enabled);
+                    }
+                }
+            }
+            "evalfile" => {
+                if let Some(v) = value {
+                    let path = v.trim();
+                    if !path.is_empty() && path != "<empty>" {
+                        match crate::nnue::load_global_model(path) {
+                            Ok(()) => {
+                                self.shared.eval_cache.clear();
+                                eprintln!("info string NNUE model loaded: {}", path);
+                            }
+                            Err(e) => {
+                                eprintln!("info string Failed to load NNUE model {}: {}", path, e);
+                            }
                         }
                     }
                 }

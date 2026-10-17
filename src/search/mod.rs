@@ -23,11 +23,13 @@ mod ordering;
 mod qsearch;
 mod see;
 pub mod tt;
+pub mod eval_cache;
 
 pub use correction::CorrectionHistoryTable;
 pub use node_types::{NodeType, OffPV, OnPV, Root};
 
 pub use countermove::CounterMoveTable;
+pub use eval_cache::EvalCache;
 pub use history::HistoryTable;
 pub use killers::KillerTable;
 pub use limits::{SearchLimits, TimeManager};
@@ -97,6 +99,8 @@ impl SearchStats {
 pub struct SharedState {
     /// Lock-free transposition table
     pub tt: TranspositionTable,
+    /// Lock-free static evaluation cache
+    pub eval_cache: EvalCache,
     /// Global stop flag
     pub stop: AtomicBool,
     /// Ponder hit flag
@@ -109,6 +113,7 @@ impl SharedState {
     pub fn new(hash_size_mb: usize) -> Self {
         Self {
             tt: TranspositionTable::new(hash_size_mb),
+            eval_cache: EvalCache::default(),
             stop: AtomicBool::new(false),
             ponderhit: AtomicBool::new(false),
             total_nodes: AtomicU64::new(0),
@@ -154,6 +159,10 @@ pub struct Searcher {
     num_threads: usize,
     /// Is this a helper thread (no UCI output)
     is_helper: bool,
+    /// Cached NNUE model Arc (loaded once per search to avoid RwLock & Arc cloning overhead)
+    pub nnue_model: Option<Arc<crate::nnue::NnueModel>>,
+    /// NNUE perspective accumulators stack indexed by search ply
+    pub accumulators: Box<[crate::nnue::PerspectiveAccumulators; 128]>,
 }
 
 impl Searcher {
@@ -175,6 +184,8 @@ impl Searcher {
             last_best_move: None,
             num_threads: 1,
             is_helper: false,
+            nnue_model: None,
+            accumulators: Box::new([crate::nnue::PerspectiveAccumulators::default(); 128]),
         }
     }
 
@@ -206,6 +217,7 @@ impl Searcher {
         self.position_history.clear();
         self.position_history.push(board.hash());
         self.board = board;
+        self.refresh_root_accumulator();
     }
 
     /// Set position with move history for repetition detection
@@ -213,6 +225,75 @@ impl Searcher {
         self.position_history = history;
         self.position_history.push(board.hash());
         self.board = board;
+        self.refresh_root_accumulator();
+    }
+
+    /// Refresh root accumulator for current position if NNUE model is active
+    pub fn refresh_root_accumulator(&mut self) {
+        self.nnue_model = if crate::nnue::is_nnue_enabled() {
+            crate::nnue::get_global_model()
+        } else {
+            None
+        };
+
+        if let Some(ref model) = self.nnue_model {
+            let psqt = model.psqt_weights.as_deref();
+            self.accumulators[0] = crate::nnue::PerspectiveAccumulators::refresh(
+                &self.board,
+                &model.feature_biases,
+                &model.feature_weights,
+                &model.psqt_biases,
+                psqt,
+            );
+        }
+    }
+
+    /// Fast static evaluation using cached NNUE model or HCE fallback.
+    /// Checks 1M-entry EvalCache first before performing dense NNUE forward pass.
+    #[inline(always)]
+    pub fn evaluate_position(&self, board: &Board, ply: usize) -> Score {
+        let hash = board.hash();
+        if let Some(cached_score) = self.shared.eval_cache.probe(hash) {
+            return cached_score;
+        }
+
+        let p = ply.min(127);
+        let score = if let Some(ref model) = self.nnue_model {
+            crate::eval::NNUE_EVAL_COUNT.fetch_add(1, Ordering::Relaxed);
+            let nnue = crate::nnue::evaluate_from_accumulators(&self.accumulators[p], board.turn(), model);
+            let mat = crate::eval::material_eval_wrapper(board);
+            nnue + Score::cp((mat.raw() * 3) / 10)
+        } else {
+            crate::eval::HCE_EVAL_COUNT.fetch_add(1, Ordering::Relaxed);
+            crate::eval::hce::evaluate(board)
+        };
+
+        self.shared.eval_cache.store(hash, score);
+        score
+    }
+
+    /// Fast linear PSQT evaluation from perspective accumulators (~2.5 ns).
+    /// Returns None if model does not have PSQT or NNUE is not active.
+    #[inline(always)]
+    pub fn evaluate_psqt(&self, board: &Board, ply: usize) -> Option<Score> {
+        let p = ply.min(127);
+        if let Some(ref model) = self.nnue_model {
+            crate::nnue::evaluate_psqt_from_accumulators(&self.accumulators[p], board.turn(), model)
+        } else {
+            None
+        }
+    }
+
+    /// Fast lazy evaluation combining bitboard material (~1.5 ns) and accumulator PSQT bonus (~2.5 ns).
+    /// Total latency: ~4 ns (compared to ~634 ns for full NNUE forward pass).
+    #[inline(always)]
+    pub fn fast_eval(&self, board: &Board, ply: usize) -> Score {
+        let mat = crate::eval::material_eval_wrapper(board);
+        if let Some(psqt) = self.evaluate_psqt(board, ply) {
+            mat + psqt
+        } else {
+            mat
+        }
     }
 
     /// Check if position has repeated (for draw detection)
@@ -334,11 +415,16 @@ impl Searcher {
             last_best_move: None,
             num_threads: 1,
             is_helper: true,
+            nnue_model: self.nnue_model.clone(),
+            accumulators: self.accumulators.clone(),
         }
     }
 
     /// Run the search with given limits (with Lazy SMP multi-threading)
     pub fn search(&mut self, limits: SearchLimits) -> SearchResult {
+        // Ensure root accumulator is fresh for the current board position
+        self.refresh_root_accumulator();
+
         // Reset state
         self.shared.stop.store(false, Ordering::Relaxed);
         self.shared.ponderhit.store(false, Ordering::Relaxed);

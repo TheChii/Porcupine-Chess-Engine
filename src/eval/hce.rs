@@ -9,7 +9,7 @@
 //!
 //! Used as NNUE fallback and works seamlessly across all phases.
 
-use crate::types::{Board, Color, Piece, Score};
+use crate::types::{Board, Color, Piece, Score, Square};
 
 // ============================================================================
 // PACKED SCORE TYPE
@@ -865,6 +865,30 @@ fn material_balance(board: &Board) -> i32 {
         score += VALUES[i] * (white - black);
     }
     score
+}
+
+/// Check if a square has a passed pawn for a given color
+#[inline(always)]
+pub fn is_passed_pawn(board: &Board, sq: Square, color: Color) -> bool {
+    let enemy_pawns = board.piece_bb(Piece::Pawn) & board.color_bb(!color);
+    let mask = match color {
+        Color::White => PASSED_MASK_WHITE[sq.index() as usize],
+        Color::Black => PASSED_MASK_BLACK[sq.index() as usize],
+    };
+    (enemy_pawns.bits() & mask) == 0
+}
+
+/// Evaluate passed pawn differential from side-to-move perspective
+#[inline(always)]
+pub fn passed_pawn_eval(board: &Board) -> Score {
+    let w_bonus = eval_passed_pawns::<true>(board);
+    let b_bonus = eval_passed_pawns::<false>(board);
+    let diff = ((w_bonus.mg() + w_bonus.eg()) - (b_bonus.mg() + b_bonus.eg())) / 2;
+    if board.turn() == Color::White {
+        Score::cp(diff)
+    } else {
+        Score::cp(-diff)
+    }
 }
 
 // ============================================================================

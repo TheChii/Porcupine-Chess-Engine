@@ -22,8 +22,8 @@
         "enabled": false
     },
     "opening": {
-        "file": "",
-        "format": 2,
+        "file": "openings.epd",
+        "format": 0,
         "order": 1,
         "plies": -1,
         "start": 1
@@ -32,7 +32,7 @@
         "additional_lines_rgx": [],
         "event_name": "Fastchess Tournament",
         "site": "?",
-        "file": "",
+        "file": "match_20games_nnue_vs_hce.pgn",
         "notation": 0,
         "append_file": true,
         "track_nodes": false,
@@ -60,7 +60,7 @@
     },
     "config_name": "config.json",
     "output": 0,
-    "seed": 10801441537292654732,
+    "seed": 4197738045140961840,
     "variant": 0,
     "type": 0,
     "gauntlet_seeds": 1,
@@ -70,7 +70,7 @@
     "autosaveinterval": 20,
     "games": 2,
     "rounds": 10,
-    "concurrency": 4,
+    "concurrency": 2,
     "force_concurrency": false,
     "recover": false,
     "noswap": false,
@@ -88,9 +88,9 @@
     },
     "engines": [
         {
-            "name": "Current",
+            "name": "Porcupine-NNUE",
             "dir": "",
-            "cmd": "porcupine-current.exe",
+            "cmd": "./target/release/porcupine",
             "args": "",
             "restart": false,
             "options": [],
@@ -98,7 +98,7 @@
                 "tc": {
                     "increment": 50,
                     "fixed_time": 0,
-                    "time": 5000,
+                    "time": 3000,
                     "moves": 0,
                     "timemargin": 0
                 },
@@ -108,9 +108,9 @@
             "variant": 0
         },
         {
-            "name": "New",
+            "name": "Porcupine-HCE",
             "dir": "",
-            "cmd": "porcupine-new.exe",
+            "cmd": "./porcupine-baseline",
             "args": "",
             "restart": false,
             "options": [],
@@ -118,7 +118,7 @@
                 "tc": {
                     "increment": 50,
                     "fixed_time": 0,
-                    "time": 5000,
+                    "time": 3000,
                     "moves": 0,
                     "timemargin": 0
                 },
@@ -129,16 +129,16 @@
         }
     ],
     "stats": {
-        "Current vs New": {
+        "Porcupine-NNUE vs Porcupine-HCE": {
             "wins": 2,
             "losses": 4,
             "draws": 14,
             "penta_WW": 0,
-            "penta_WD": 0,
-            "penta_WL": 2,
+            "penta_WD": 1,
+            "penta_WL": 1,
             "penta_DD": 6,
-            "penta_LD": 2,
-            "penta_LL": 0
+            "penta_LD": 1,
+            "penta_LL": 1
         }
     }
 }

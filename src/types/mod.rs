@@ -16,7 +16,7 @@ pub use score::{Score, SCORE_DRAW, SCORE_INFINITY, SCORE_MATE, SCORE_NONE};
 
 // Re-export movegen crate types as canonical types
 // This gives us a single source of truth and avoids confusion
-pub use movegen::{Bitboard, Board, CastleRights, Color, Move, MoveFlag, MoveList, Piece, Square};
+pub use movegen::{Bitboard, Board, CastleRights, Color, File, Move, MoveFlag, MoveList, Piece, Rank, Square};
 
 /// Zobrist hash type (used for transposition table)
 pub type Hash = u64;
